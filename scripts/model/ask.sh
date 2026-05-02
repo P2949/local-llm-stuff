@@ -36,15 +36,17 @@ curl -sf \
     exit 1
   }
 
+if jq -e '.. | objects | has("reasoning_content")' "$TMP_RESPONSE" >/dev/null 2>&1; then
+  echo "ERROR: response contains reasoning_content; reasoning/thinking is not disabled" >&2
+  echo "ERROR: raw response kept at $TMP_RESPONSE" >&2
+  exit 1
+fi
+
 jq -r '.choices[0].message.content // empty' "$TMP_RESPONSE" > "$OUTPUT_FILE"
 
 if [ ! -s "$OUTPUT_FILE" ]; then
   echo "ERROR: empty model content. Raw response kept at $TMP_RESPONSE" >&2
   exit 1
-fi
-
-if jq -e '.. | objects | has("reasoning_content")' "$TMP_RESPONSE" >/dev/null 2>&1; then
-  echo "WARNING: response contains reasoning_content; check --reasoning off / model template" >&2
 fi
 
 LINES="$(wc -l < "$OUTPUT_FILE" | tr -d ' ')"
