@@ -34,6 +34,59 @@ repo_file_list() {
   git ls-files '*.rs' 'Cargo.toml' 'Cargo.lock' 2>/dev/null | sort | head -"$max_files"
 }
 
+context_pack_files_for_task() {
+  local task_file="${1:?task file required}"
+  local task_text=""
+  [ -f "$task_file" ] && task_text="$(cat "$task_file")"
+
+  # Project-specific packs are optional and sourced from config/projects/*.env.
+  if echo "$task_text" | grep -qiE 'ebpf|tracepoint|ringbuf|aya|abi|drop counter|map'; then
+    printf '%s\n' ${CONTEXT_PACK_EBPF:-}
+  fi
+  if echo "$task_text" | grep -qiE 'tree|tid|pid|proc|cgroup|watch-process|process'; then
+    printf '%s\n' ${CONTEXT_PACK_TRACKING:-}
+  fi
+  if echo "$task_text" | grep -qiE 'record|report|json|schema|spike|percentile|html|csv'; then
+    printf '%s\n' ${CONTEXT_PACK_REPORT:-}
+  fi
+  if echo "$task_text" | grep -qiE 'affinity|profile|restore|taskset|cpu mask|sched_setaffinity'; then
+    printf '%s\n' ${CONTEXT_PACK_AFFINITY:-}
+  fi
+  if echo "$task_text" | grep -qiE 'tune|score|candidate|mangohud|frametime'; then
+    printf '%s\n' ${CONTEXT_PACK_TUNE:-}
+  fi
+}
+
+pack_project_context_packs() {
+  local repo="$1"
+  local task_file="${2:-}"
+  local max_bytes="${3:-80000}"
+  local used=0
+  local seen=" "
+
+  [ -n "$task_file" ] || return 0
+  cd "$repo"
+
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    [[ "$seen" == *" $file "* ]] && continue
+    seen="$seen$file "
+    [ -f "$file" ] || continue
+    local size
+    size=$(wc -c < "$file" | tr -d ' ')
+    if [ $((used + size)) -gt "$max_bytes" ]; then
+      echo "<!-- project context pack budget reached at $used / $max_bytes bytes; skipped $file -->"
+      break
+    fi
+    echo
+    echo "## PROJECT CONTEXT FILE: $file"
+    echo '```'
+    cat "$file"
+    echo '```'
+    used=$((used + size))
+  done < <(context_pack_files_for_task "$task_file")
+}
+
 pack_repo_sources() {
   local repo="$1"
   local max_files="${2:-80}"
@@ -74,7 +127,7 @@ pack_touched_files() {
   git diff --name-only | while IFS= read -r file; do
     [ -f "$file" ] || continue
     case "$file" in
-      *.rs|Cargo.toml|Cargo.lock) ;;
+      *.rs|Cargo.toml|Cargo.lock|*.md|*.toml|*.sh) ;;
       *) continue ;;
     esac
     local size
@@ -101,12 +154,17 @@ write_context_manifest() {
     echo
     echo "Generated: $(date -Iseconds)"
     echo "Repository: $repo"
+    echo "Project profile: ${PROJECT_PROFILE_NAME:-generic}"
     echo
     echo "## Git status"
     cd "$repo"
     git status --short || true
     echo
-    echo "## Tracked Rust/Cargo files"
-    git ls-files '*.rs' 'Cargo.toml' 'Cargo.lock' 2>/dev/null | sort
+    echo "## Current branch and commit"
+    echo "branch=$(git branch --show-current 2>/dev/null || true)"
+    echo "commit=$(git rev-parse HEAD 2>/dev/null || true)"
+    echo
+    echo "## Tracked Rust/Cargo/shell/markdown files"
+    git ls-files '*.rs' 'Cargo.toml' 'Cargo.lock' '*.sh' '*.md' '*.toml' 2>/dev/null | sort
   } > "$out"
 }
