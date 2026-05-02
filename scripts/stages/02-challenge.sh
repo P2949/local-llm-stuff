@@ -5,6 +5,10 @@ RUN_DIR="${1:?Usage: 02-challenge.sh <run-dir>}"
 source "$RUN_DIR/00-meta.env"
 source "$PIPELINE_DIR/config/models.env"
 source "$PIPELINE_DIR/config/pipeline.env"
+if [ -n "${PROJECT_PROFILE_FILE:-}" ] && [ -f "$PROJECT_PROFILE_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$PROJECT_PROFILE_FILE"
+fi
 source "$PIPELINE_DIR/scripts/lib/context.sh"
 
 echo "=== Stage 2: Challenge ==="
@@ -28,6 +32,14 @@ fi
   echo "# Task"
   cat "$RUN_DIR/00-task.md"
   echo
+  echo "# Pipeline policy"
+  cat "$RUN_DIR/00-policy.md"
+  echo
+  if [ -n "${PROJECT_REVIEW_ADDENDUM:-}" ] && [ -f "$PROJECT_REVIEW_ADDENDUM" ]; then
+    echo "# Project-specific review addendum"
+    cat "$PROJECT_REVIEW_ADDENDUM"
+    echo
+  fi
   echo "# Primary finder report"
   cat "$RUN_DIR/01-finder.md"
   echo
@@ -36,10 +48,13 @@ fi
   echo "# Repository map"
   cat "$RUN_DIR/00-repo-map.md"
   echo
-  echo "# Source context"
+  echo "# Project-prioritized source context"
+  pack_project_context_packs "$TARGET_REPO" "$RUN_DIR/00-task.md" "$CONTEXT_MAX_SOURCE_BYTES"
+  echo
+  echo "# Generic source context"
   pack_repo_sources "$TARGET_REPO" "$CONTEXT_MAX_SOURCE_FILES" "$CONTEXT_MAX_SOURCE_BYTES"
   echo
-  echo "Attack every issue or implementation item. Output required Decision lines."
+  echo "Attack every issue or implementation item. Output required Decision lines. Reject anything unsupported by evidence or outside policy scope."
 } > "$USER_PROMPT_FILE"
 
 "$PIPELINE_DIR/scripts/model/run.sh" qwen35b "$QWEN35B_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/02-challenge.md"
