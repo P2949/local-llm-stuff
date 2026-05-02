@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RUN_DIR="${1:?Usage: 03-accepted-issues.sh <run-dir>}"
+source "$RUN_DIR/00-meta.env"
+
+echo "=== Stage 3: Extract Accepted Items ==="
+
+OUT="$RUN_DIR/03-accepted-issues.md"
+{
+  echo "# Accepted Items"
+  echo
+  echo "Extracted from: 02-challenge.md"
+  echo "Date: $(date -Iseconds)"
+  echo
+  awk '
+    /^## [FPI]-[0-9]+:/ { header=$0; block=header "\n"; capture=1; next }
+    /^## / && capture { capture=0 }
+    capture { block=block $0 "\n" }
+    /^$/ && capture { next }
+    END {}
+  ' "$RUN_DIR/02-challenge.md" >/dev/null
+
+  awk '
+    /^## [FPI]-[0-9]+:/ {
+      if (block ~ /Decision:[[:space:]]*ACCEPT/) print block "\n"
+      block=$0 "\n"
+      inblock=1
+      next
+    }
+    /^## / {
+      if (inblock && block ~ /Decision:[[:space:]]*ACCEPT/) print block "\n"
+      inblock=0
+      block=""
+      next
+    }
+    inblock { block=block $0 "\n" }
+    END {
+      if (inblock && block ~ /Decision:[[:space:]]*ACCEPT/) print block "\n"
+    }
+  ' "$RUN_DIR/02-challenge.md"
+} > "$OUT"
+
+ACCEPTED_COUNT="$(grep -c "Decision: ACCEPT" "$OUT" 2>/dev/null || true)"
+echo "INFO: accepted items: ${ACCEPTED_COUNT:-0}"
+echo "INFO: accepted items -> $OUT"
