@@ -10,6 +10,9 @@ source "$PIPELINE_DIR/scripts/lib/context.sh"
 echo "=== Stage 1: Finder ==="
 
 USER_PROMPT_FILE="/tmp/llm-pipeline-finder-user-$RUN_ID.md"
+cleanup() { rm -f "$USER_PROMPT_FILE"; }
+trap cleanup EXIT INT TERM
+
 SYSTEM_PROMPT="$PIPELINE_DIR/prompts/finder.md"
 if [ "${TASK_MODE:-fix}" = "feature" ]; then
   SYSTEM_PROMPT="$PIPELINE_DIR/prompts/finder-feature.md"
@@ -37,9 +40,9 @@ fi
   echo "Now produce the required finder report."
 } > "$USER_PROMPT_FILE"
 
-"$PIPELINE_DIR/scripts/model/start.sh" qwen27b
-"$PIPELINE_DIR/scripts/model/ask.sh" "$QWEN27B_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/01-finder.md"
-"$PIPELINE_DIR/scripts/model/stop.sh" qwen27b
-rm -f "$USER_PROMPT_FILE"
+"$PIPELINE_DIR/scripts/model/run.sh" qwen27b "$QWEN27B_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/01-finder.md"
+
+trap - EXIT INT TERM
+cleanup
 
 echo "INFO: finder complete -> $RUN_DIR/01-finder.md"
