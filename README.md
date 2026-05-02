@@ -32,6 +32,31 @@ The same stage order supports both bug-fix review and feature implementation:
 - `clippy` and `test` rescue are not allowed; failures go back through the revision loop.
 - Raw review output never goes directly back to the editor. It always goes through the revision writer.
 - No stage commits, pushes, merges, uses sudo/doas, installs packages, or uses network access inside the target repo.
+- Treat `APPROVED` as ready for human inspection, not as permission to merge automatically.
+
+## Recommended first-use policy
+
+Use the harness as a supervised local code-review and patch assistant.
+
+Good first tasks:
+
+```text
+- Small bug fixes with clear symptoms
+- Clippy/test/build failures
+- Localized Rust refactors
+- Adding focused regression tests
+- Build-script/config/error-message improvements
+- Pre-release review of changed files
+```
+
+Avoid starting with:
+
+```text
+- Huge architecture rewrites
+- Security-sensitive changes without manual review
+- Vague "review the whole project and fix everything" prompts
+- Tasks that require network access or package installation in the target repo
+```
 
 ## Repository layout
 
@@ -55,6 +80,7 @@ scripts/
   model/ask.sh
   stages/*.sh
   new-run.sh
+  inspect-run.sh
   pipeline.sh
 ```
 
@@ -78,7 +104,17 @@ After cloning this harness repo, make scripts executable:
 chmod +x scripts/*.sh scripts/model/*.sh scripts/stages/*.sh
 ```
 
-Edit `config/models.env` so paths match your local machine.
+Edit `config/models.env` so portable defaults match your local model paths. Put machine-specific GPU/device overrides in the ignored file:
+
+```bash
+config/models.local.env
+```
+
+Put local context-budget or Aider overrides in the ignored file:
+
+```bash
+config/pipeline.local.env
+```
 
 Required tools:
 
@@ -117,12 +153,28 @@ bash scripts/pipeline.sh ~/projects/my-rust-project/.llm-runs/<RUN_ID>
 
 ## After approval
 
-The harness does not merge automatically. Inspect the worktree yourself:
+The harness does not merge automatically. Inspect the worktree yourself.
+
+Use the helper:
+
+```bash
+bash scripts/inspect-run.sh ~/projects/my-rust-project/.llm-runs/<RUN_ID>
+```
+
+Rerun verification manually inside the worktree with:
+
+```bash
+bash scripts/inspect-run.sh ~/projects/my-rust-project/.llm-runs/<RUN_ID> --verify
+```
+
+Manual equivalent:
 
 ```bash
 cd ../llm-agent-<RUN_ID>
+git status --short
 git diff
 cat <target-repo>/.llm-runs/<RUN_ID>/09-final-decision.txt
+cat <target-repo>/.llm-runs/<RUN_ID>/05-agent-result.md
 ```
 
 If satisfied, merge manually from your target repo.
