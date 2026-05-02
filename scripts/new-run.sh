@@ -5,8 +5,20 @@ PIPELINE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$PIPELINE_DIR/config/pipeline.env"
 
 TARGET_REPO="${1:?Usage: new-run.sh <path-to-rust-repo> [fix|feature] [task-description]}"
-TASK_MODE="${2:-$DEFAULT_TASK_MODE}"
-TASK_DESC="${3:-}"
+ARG2="${2:-}"
+ARG3="${3:-}"
+
+# Backward-compatible parsing:
+#   new-run.sh <repo> "task"              -> fix mode
+#   new-run.sh <repo> fix "task"          -> fix mode
+#   new-run.sh <repo> feature "task"      -> feature mode
+if [ "$ARG2" = "fix" ] || [ "$ARG2" = "feature" ]; then
+  TASK_MODE="$ARG2"
+  TASK_DESC="$ARG3"
+else
+  TASK_MODE="$DEFAULT_TASK_MODE"
+  TASK_DESC="$ARG2"
+fi
 
 case "$TASK_MODE" in
   fix|feature) ;;
@@ -15,6 +27,12 @@ esac
 
 TARGET_REPO="$(realpath "$TARGET_REPO")"
 [ -f "$TARGET_REPO/Cargo.toml" ] || { echo "ERROR: no Cargo.toml in $TARGET_REPO" >&2; exit 1; }
+
+cd "$TARGET_REPO"
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "ERROR: target is not a git repository: $TARGET_REPO" >&2
+  exit 1
+fi
 
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="$TARGET_REPO/.llm-runs/$RUN_ID"
@@ -50,7 +68,6 @@ Describe:
 EOF
 fi
 
-cd "$TARGET_REPO"
 git worktree add "$WORKTREE_PATH" -b "llm/agent-${RUN_ID}"
 
 # Repo map is generated during baseline too, but create a first copy now.
