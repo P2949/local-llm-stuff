@@ -28,15 +28,31 @@ jq -n \
     ]
   }' > "$PAYLOAD_FILE"
 
-curl -sf \
+HTTP_CODE="$(curl -sS \
   --max-time 900 \
+  -o "$TMP_RESPONSE" \
+  -w '%{http_code}' \
   "http://127.0.0.1:${PORT}/v1/chat/completions" \
   -H "Content-Type: application/json" \
-  --data-binary "@$PAYLOAD_FILE" \
-  > "$TMP_RESPONSE" || {
-    echo "ERROR: curl failed for port $PORT" >&2
+  --data-binary "@$PAYLOAD_FILE")" || {
+    echo "ERROR: curl transport failed for port $PORT" >&2
+    [ -s "$TMP_RESPONSE" ] && {
+      echo "ERROR: raw response kept at $TMP_RESPONSE" >&2
+      head -c 4000 "$TMP_RESPONSE" >&2
+      echo >&2
+    }
     exit 1
   }
+
+if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+  echo "ERROR: model server returned HTTP $HTTP_CODE for port $PORT" >&2
+  echo "ERROR: raw response kept at $TMP_RESPONSE" >&2
+  if [ -s "$TMP_RESPONSE" ]; then
+    head -c 4000 "$TMP_RESPONSE" >&2
+    echo >&2
+  fi
+  exit 1
+fi
 
 if jq -e '.. | objects | has("reasoning_content")' "$TMP_RESPONSE" >/dev/null 2>&1; then
   echo "ERROR: response contains reasoning_content; reasoning/thinking is not disabled" >&2
