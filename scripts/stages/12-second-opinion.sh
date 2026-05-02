@@ -13,26 +13,48 @@ USER_PROMPT_FILE="/tmp/llm-pipeline-second-opinion-user-$RUN_ID.md"
 cleanup() { rm -f "$USER_PROMPT_FILE"; }
 trap cleanup EXIT INT TERM
 
+source_diff() {
+  if [ -d "${WORKTREE_PATH:-}" ]; then
+    (
+      cd "$WORKTREE_PATH"
+      git diff -- src tests 2>/dev/null || git diff -- . ':!target' ':!build' ':!debug' ':!release' 2>/dev/null || true
+    )
+  else
+    awk '
+      /^diff --git a\/target\// { skip=1 }
+      /^diff --git / && $0 !~ /^diff --git a\/target\// { skip=0 }
+      !skip { print }
+    ' "$RUN_DIR/06-diff.patch"
+  fi
+}
+
+harness_summary_without_build_artifacts() {
+  awk '
+    /^## Diff summary/ { print; print "(diff summary omitted here; source diff is provided separately)"; exit }
+    { print }
+  ' "$RUN_DIR/05-agent-result.md"
+}
+
 {
   echo "# Accepted items"
-  cat "$RUN_DIR/03-accepted-issues.md"
+  truncate_file "$RUN_DIR/03-accepted-issues.md" 24000
   echo
   echo "# Patch prompt"
-  cat "$RUN_DIR/04-patch-prompt.md"
+  truncate_file "$RUN_DIR/04-patch-prompt.md" 24000
   echo
   echo "# Harness result"
-  cat "$RUN_DIR/05-agent-result.md"
+  harness_summary_without_build_artifacts
   echo
-  echo "# Final diff"
-  truncate_file "$RUN_DIR/06-diff.patch" "$CONTEXT_MAX_DIFF_BYTES"
+  echo "# Source diff only"
+  source_diff | head -c "$CONTEXT_MAX_DIFF_BYTES"
   echo
   echo "# Primary review"
-  cat "$RUN_DIR/07-review.md" 2>/dev/null || true
+  truncate_file "$RUN_DIR/07-review.md" 24000 2>/dev/null || true
   echo
   echo "Give independent second opinion with AGREE, DISAGREE, or BLOCK."
 } > "$USER_PROMPT_FILE"
 
-"$PIPELINE_DIR/scripts/model/run.sh" gemma "$GEMMA_PORT" "$PIPELINE_DIR/prompts/second-opinion.md" "$USER_PROMPT_FILE" "$RUN_DIR/08-second-opinion.md"
+bash "$PIPELINE_DIR/scripts/model/run.sh" gemma "$GEMMA_PORT" "$PIPELINE_DIR/prompts/second-opinion.md" "$USER_PROMPT_FILE" "$RUN_DIR/08-second-opinion.md"
 
 trap - EXIT INT TERM
 cleanup
