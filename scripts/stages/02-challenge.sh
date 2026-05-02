@@ -10,6 +10,9 @@ source "$PIPELINE_DIR/scripts/lib/context.sh"
 echo "=== Stage 2: Challenge ==="
 
 USER_PROMPT_FILE="/tmp/llm-pipeline-challenge-user-$RUN_ID.md"
+cleanup() { rm -f "$USER_PROMPT_FILE"; }
+trap cleanup EXIT INT TERM
+
 SYSTEM_PROMPT="$PIPELINE_DIR/prompts/challenge.md"
 if [ "${TASK_MODE:-fix}" = "feature" ]; then
   SYSTEM_PROMPT="$PIPELINE_DIR/prompts/challenge-feature.md"
@@ -39,9 +42,9 @@ fi
   echo "Attack every issue or implementation item. Output required Decision lines."
 } > "$USER_PROMPT_FILE"
 
-"$PIPELINE_DIR/scripts/model/start.sh" qwen35b
-"$PIPELINE_DIR/scripts/model/ask.sh" "$QWEN35B_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/02-challenge.md"
-"$PIPELINE_DIR/scripts/model/stop.sh" qwen35b
-rm -f "$USER_PROMPT_FILE"
+"$PIPELINE_DIR/scripts/model/run.sh" qwen35b "$QWEN35B_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/02-challenge.md"
+
+trap - EXIT INT TERM
+cleanup
 
 echo "INFO: challenge complete -> $RUN_DIR/02-challenge.md"
