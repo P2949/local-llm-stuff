@@ -35,7 +35,7 @@ run_stage() {
   echo "╔══════════════════════════════════════╗"
   printf "║  %-36s║\n" "$name"
   echo "╚══════════════════════════════════════╝"
-  "$STAGES/$name" "$RUN_DIR" "$@"
+  bash "$STAGES/$name" "$RUN_DIR" "$@"
 }
 
 get_review_verdict() {
