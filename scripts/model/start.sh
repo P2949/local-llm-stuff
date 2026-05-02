@@ -7,12 +7,12 @@ source "$SCRIPT_DIR/../../config/models.env"
 ROLE="${1:?Usage: start.sh <qwen27b|qwen35b|qwen35b_fallback|qwen_coder|gemma|devstral>}"
 
 case "$ROLE" in
-  qwen27b)         MODEL="$QWEN27B_MODEL";          PORT="$QWEN27B_PORT" ;;
-  qwen35b)         MODEL="$QWEN35B_MODEL";          PORT="$QWEN35B_PORT" ;;
-  qwen35b_fallback) MODEL="$QWEN35B_FALLBACK_MODEL"; PORT="$QWEN35B_PORT" ;;
-  qwen_coder)      MODEL="$QWEN_CODER_MODEL";       PORT="$QWEN_CODER_PORT" ;;
-  gemma)           MODEL="$GEMMA_MODEL";            PORT="$GEMMA_PORT" ;;
-  devstral)        MODEL="$DEVSTRAL_MODEL";         PORT="$DEVSTRAL_PORT" ;;
+  qwen27b)           MODEL="$QWEN27B_MODEL";           PORT="$QWEN27B_PORT" ;;
+  qwen35b)           MODEL="$QWEN35B_MODEL";           PORT="$QWEN35B_PORT" ;;
+  qwen35b_fallback)  MODEL="$QWEN35B_FALLBACK_MODEL";  PORT="$QWEN35B_PORT" ;;
+  qwen_coder)        MODEL="$QWEN_CODER_MODEL";        PORT="$QWEN_CODER_PORT" ;;
+  gemma)             MODEL="$GEMMA_MODEL";             PORT="$GEMMA_PORT" ;;
+  devstral)          MODEL="$DEVSTRAL_MODEL";          PORT="$DEVSTRAL_PORT" ;;
   *) echo "ERROR: unknown model role: $ROLE" >&2; exit 1 ;;
 esac
 
@@ -30,6 +30,9 @@ fi
 rm -f "$PIDFILE"
 echo "INFO: starting $ROLE on port $PORT"
 echo "INFO: model: $MODEL"
+echo "INFO: log: $LOGFILE"
+[ -n "${MODEL_ENV_PREFIX:-}" ] && echo "INFO: env prefix: $MODEL_ENV_PREFIX"
+[ -n "${LLAMA_EXTRA_ARGS:-}" ] && echo "INFO: extra args: $LLAMA_EXTRA_ARGS"
 
 # shellcheck disable=SC2086
 if [ -n "${MODEL_ENV_PREFIX:-}" ]; then
@@ -37,6 +40,7 @@ if [ -n "${MODEL_ENV_PREFIX:-}" ]; then
     -m "$MODEL" \
     -c "$DEFAULT_CTX" \
     $LLAMA_FLAGS \
+    $LLAMA_EXTRA_ARGS \
     --host 127.0.0.1 \
     --port "$PORT" \
     > "$LOGFILE" 2>&1 &
@@ -46,6 +50,7 @@ else
     -m "$MODEL" \
     -c "$DEFAULT_CTX" \
     $LLAMA_FLAGS \
+    $LLAMA_EXTRA_ARGS \
     --host 127.0.0.1 \
     --port "$PORT" \
     > "$LOGFILE" 2>&1 &
@@ -53,7 +58,7 @@ fi
 
 PID=$!
 echo "$PID" > "$PIDFILE"
-echo "INFO: pid $PID, log $LOGFILE"
+echo "INFO: pid $PID"
 
 for i in $(seq 1 90); do
   if curl -sf "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
@@ -62,7 +67,7 @@ for i in $(seq 1 90); do
   fi
   if ! kill -0 "$PID" 2>/dev/null; then
     echo "ERROR: $ROLE exited during startup. Log follows:" >&2
-    tail -80 "$LOGFILE" >&2 || true
+    tail -120 "$LOGFILE" >&2 || true
     rm -f "$PIDFILE"
     exit 1
   fi
