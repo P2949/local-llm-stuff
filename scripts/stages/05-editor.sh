@@ -6,6 +6,11 @@ PROMPT_FILE="${2:-$RUN_DIR/04-patch-prompt.md}"
 source "$RUN_DIR/00-meta.env"
 source "$PIPELINE_DIR/config/models.env"
 source "$PIPELINE_DIR/config/pipeline.env"
+source "$PIPELINE_DIR/scripts/lib/policy.sh"
+if [ -n "${PROJECT_PROFILE_FILE:-}" ] && [ -f "$PROJECT_PROFILE_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$PROJECT_PROFILE_FILE"
+fi
 
 echo "=== Stage 5: Editor ==="
 echo "INFO: prompt: $PROMPT_FILE"
@@ -13,6 +18,13 @@ echo "INFO: worktree: $WORKTREE_PATH"
 
 [ -f "$PROMPT_FILE" ] || { echo "ERROR: prompt file missing: $PROMPT_FILE" >&2; exit 1; }
 [ -d "$WORKTREE_PATH/.git" ] || [ -f "$WORKTREE_PATH/.git" ] || { echo "ERROR: worktree missing: $WORKTREE_PATH" >&2; exit 1; }
+
+policy_assert_local_editor_model
+
+if [ "${TASK_MODE:-fix}" = "review" ]; then
+  echo "ERROR: editor stage must never run in review-only mode" >&2
+  exit 1
+fi
 
 AIDER_PROMPT_ARGS=()
 if "$AIDER_BIN" --help 2>/dev/null | grep -q -- '--message-file'; then
@@ -36,6 +48,12 @@ fi
 
 cd "$WORKTREE_PATH"
 
+BASE_BEFORE="$(git rev-parse HEAD)"
+if [ -n "${AGENT_BASE_COMMIT:-}" ] && [ "$BASE_BEFORE" != "$AGENT_BASE_COMMIT" ]; then
+  echo "ERROR: worktree HEAD changed before editor stage. Expected $AGENT_BASE_COMMIT got $BASE_BEFORE" >&2
+  exit 1
+fi
+
 MODEL_STARTED=0
 cleanup() {
   if [ "$MODEL_STARTED" -eq 1 ]; then
@@ -53,8 +71,11 @@ if [ -n "${AIDER_EXTRA_ARGS:-}" ]; then
   AIDER_EXTRA_ARGV=($AIDER_EXTRA_ARGS)
 fi
 
+EDITOR_API_BASE="http://127.0.0.1:${QWEN_CODER_PORT}/v1"
+policy_assert_local_api_base "$EDITOR_API_BASE"
+
 set +e
-AIDER_OPENAI_API_BASE="http://127.0.0.1:${QWEN_CODER_PORT}/v1" \
+AIDER_OPENAI_API_BASE="$EDITOR_API_BASE" \
 OPENAI_API_KEY="local" \
 "$AIDER_BIN" \
   --model "$ACTIVE_EDITOR_MODEL" \
@@ -73,6 +94,22 @@ set -e
 
 trap - EXIT
 cleanup
+
+BASE_AFTER="$(git rev-parse HEAD)"
+{
+  echo "# Editor policy result"
+  echo "editor_model=$ACTIVE_EDITOR_MODEL"
+  echo "api_base=$EDITOR_API_BASE"
+  echo "base_before=$BASE_BEFORE"
+  echo "base_after=$BASE_AFTER"
+  echo "aider_exit=$AIDER_EXIT"
+} > "$RUN_DIR/05-editor-policy.txt"
+
+if policy_bool_enabled "${ENFORCE_NO_AGENT_COMMITS:-1}" && [ "$BASE_AFTER" != "$BASE_BEFORE" ]; then
+  echo "ERROR: editor changed HEAD; agents must not commit" | tee -a "$RUN_DIR/05-editor-policy.txt" >&2
+  echo "$AIDER_EXIT" > "$RUN_DIR/05-agent-exit-code.txt"
+  exit 1
+fi
 
 echo "INFO: Aider exit code: $AIDER_EXIT" | tee -a "$RUN_DIR/05-agent-output.txt"
 # Do not fail the whole harness just because aider exits non-zero; verifier/reviewer decide next.
