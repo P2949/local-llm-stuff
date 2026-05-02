@@ -40,7 +40,7 @@ fi
   echo "Now produce the required finder report."
 } > "$USER_PROMPT_FILE"
 
-"$PIPELINE_DIR/scripts/model/run.sh" qwen27b "$QWEN27B_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/01-finder.md"
+bash "$PIPELINE_DIR/scripts/model/run.sh" qwen27b "$QWEN27B_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/01-finder.md"
 
 trap - EXIT INT TERM
 cleanup
