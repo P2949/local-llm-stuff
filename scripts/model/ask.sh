@@ -9,13 +9,15 @@ OUTPUT_FILE="${4:?}"
 [ -f "$SYSTEM_FILE" ] || { echo "ERROR: system prompt not found: $SYSTEM_FILE" >&2; exit 1; }
 [ -f "$USER_FILE" ] || { echo "ERROR: user prompt not found: $USER_FILE" >&2; exit 1; }
 
-SYSTEM_PROMPT="$(cat "$SYSTEM_FILE")"
-USER_PROMPT="$(cat "$USER_FILE")"
 TMP_RESPONSE="${OUTPUT_FILE}.raw.json"
+PAYLOAD_FILE="$(mktemp "${TMPDIR:-/tmp}/llm-pipeline-payload.XXXXXX.json")"
+trap 'rm -f "$PAYLOAD_FILE"' EXIT
 
-PAYLOAD="$(jq -n \
-  --arg sys "$SYSTEM_PROMPT" \
-  --arg usr "$USER_PROMPT" \
+# Do not pass prompt contents through argv. Large repo prompts can exceed ARG_MAX
+# if they are passed via jq --arg or curl -d "$PAYLOAD".
+jq -n \
+  --rawfile sys "$SYSTEM_FILE" \
+  --rawfile usr "$USER_FILE" \
   '{
     model: "local",
     temperature: 0.0,
@@ -24,13 +26,13 @@ PAYLOAD="$(jq -n \
       {role: "system", content: $sys},
       {role: "user", content: $usr}
     ]
-  }')"
+  }' > "$PAYLOAD_FILE"
 
 curl -sf \
   --max-time 900 \
   "http://127.0.0.1:${PORT}/v1/chat/completions" \
   -H "Content-Type: application/json" \
-  -d "$PAYLOAD" \
+  --data-binary "@$PAYLOAD_FILE" \
   > "$TMP_RESPONSE" || {
     echo "ERROR: curl failed for port $PORT" >&2
     exit 1
