@@ -31,6 +31,7 @@ rm -f "$PIDFILE"
 echo "INFO: starting $ROLE on port $PORT"
 echo "INFO: model: $MODEL"
 echo "INFO: log: $LOGFILE"
+echo "INFO: startup timeout: ${MODEL_START_TIMEOUT_SECONDS}s"
 [ -n "${MODEL_ENV_PREFIX:-}" ] && echo "INFO: env prefix: $MODEL_ENV_PREFIX"
 [ -n "${LLAMA_EXTRA_ARGS:-}" ] && echo "INFO: extra args: $LLAMA_EXTRA_ARGS"
 
@@ -60,7 +61,18 @@ PID=$!
 echo "$PID" > "$PIDFILE"
 echo "INFO: pid $PID"
 
-for i in $(seq 1 90); do
+cleanup_startup_failure() {
+  local pid="$1"
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "INFO: stopping $ROLE after startup failure (pid $pid)" >&2
+    kill "$pid" 2>/dev/null || true
+    sleep 2
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$PIDFILE"
+}
+
+for i in $(seq 1 "$MODEL_START_TIMEOUT_SECONDS"); do
   if curl -sf "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
     echo "INFO: $ROLE ready after ${i}s"
     exit 0
@@ -74,5 +86,7 @@ for i in $(seq 1 90); do
   sleep 1
 done
 
-echo "ERROR: $ROLE did not become ready within 90s. Check $LOGFILE" >&2
+echo "ERROR: $ROLE did not become ready within ${MODEL_START_TIMEOUT_SECONDS}s. Check $LOGFILE" >&2
+tail -80 "$LOGFILE" >&2 || true
+cleanup_startup_failure "$PID"
 exit 1
