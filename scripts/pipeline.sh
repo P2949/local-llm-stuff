@@ -5,6 +5,14 @@ PIPELINE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_DIR="${1:?Usage: pipeline.sh <run-dir>}"
 source "$RUN_DIR/00-meta.env"
 source "$PIPELINE_DIR/config/pipeline.env"
+source "$PIPELINE_DIR/scripts/lib/policy.sh"
+
+if [ -n "${PROJECT_PROFILE_FILE:-}" ] && [ -f "$PROJECT_PROFILE_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$PROJECT_PROFILE_FILE"
+else
+  policy_source_project_profile "$TARGET_REPO"
+fi
 
 STAGES="$PIPELINE_DIR/scripts/stages"
 
@@ -67,8 +75,8 @@ should_trigger_shadow_finder() {
   for kw in $(echo "$HIGH_SEVERITY_KEYWORDS" | tr ',' '\n'); do
     echo "$task" | grep -qi "$kw" && return 0
   done
-  grep -qiE 'unsafe|pub (fn|struct|enum|trait)|serialize|deserialize|file I/O|state invariant' "$RUN_DIR/01-finder.md" 2>/dev/null && return 0
-  if [ "${TASK_MODE:-fix}" = "fix" ] && ! grep -qE '^### [FP]-[0-9]+' "$RUN_DIR/01-finder.md" 2>/dev/null; then
+  grep -qiE 'unsafe|pub (fn|struct|enum|trait)|serialize|deserialize|file I/O|state invariant|eBPF|tracepoint|affinity|restore' "$RUN_DIR/01-finder.md" 2>/dev/null && return 0
+  if [ "${TASK_MODE:-fix}" != "feature" ] && ! grep -qE '^### [FPI]-[0-9]+' "$RUN_DIR/01-finder.md" 2>/dev/null; then
     return 0
   fi
   return 1
@@ -76,11 +84,13 @@ should_trigger_shadow_finder() {
 
 should_trigger_second_opinion() {
   local verdict="$1"
-  case "$verdict" in
-    REQUEST_CHANGES|REJECT|UNCERTAIN|NEEDS_HUMAN_REVIEW) return 0 ;;
-  esac
-  grep -qiE '^[+-].*(unsafe|pub fn|pub struct|pub enum|pub trait|serialize|deserialize|file I/O|state invariant)' "$RUN_DIR/06-diff.patch" 2>/dev/null && return 0
-  grep -qiE 'critical|high' "$RUN_DIR/03-accepted-issues.md" 2>/dev/null && return 0
+  if policy_bool_enabled "${ENFORCE_SECOND_OPINION_ON_RISK:-1}"; then
+    case "$verdict" in
+      REQUEST_CHANGES|REJECT|UNCERTAIN|NEEDS_HUMAN_REVIEW) return 0 ;;
+    esac
+    grep -qiE "${RISK_DIFF_REGEX:-unsafe|pub fn|serialize|file I/O}" "$RUN_DIR/06-diff.patch" 2>/dev/null && return 0
+    grep -qiE 'critical|high|eBPF|ABI|affinity|restore|state invariant' "$RUN_DIR/03-accepted-issues.md" 2>/dev/null && return 0
+  fi
   return 1
 }
 
@@ -95,6 +105,9 @@ check_revision_for_escalation() {
     exit 1
   fi
 }
+
+policy_write_manifest "$RUN_DIR"
+policy_assert_local_editor_model
 
 run_stage 00-baseline.sh
 run_stage 01-finder.sh
@@ -116,6 +129,11 @@ if [ "$ACCEPTED_COUNT" -eq 0 ]; then
   exit 0
 fi
 
+if [ "${TASK_MODE:-fix}" = "review" ]; then
+  write_decision "REVIEW_READY" "review-only mode stopped after accepted issue extraction; no editor stage was run"
+  exit 0
+fi
+
 run_stage 04-patch-writer.sh
 
 ITERATION=0
@@ -128,7 +146,7 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
   source "$RUN_DIR/00-meta.env"
 
   run_stage 05-editor.sh "$CURRENT_PROMPT"
-  run_stage 06-verify.sh
+  run_stage 06-verify.sh "$CURRENT_PROMPT"
 
   VERIFY_STATUS="$(cat "$RUN_DIR/06-status.txt")"
   echo "INFO: verification status: $VERIFY_STATUS"
@@ -148,7 +166,7 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
     continue
   fi
 
-  run_stage 07-review.sh
+  run_stage 07-review.sh "$CURRENT_PROMPT"
   VERDICT="$(get_review_verdict)"
   echo "INFO: review verdict: $VERDICT"
 
@@ -169,12 +187,12 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
             exit 1
             ;;
           AGREE|*)
-            write_decision "APPROVED" "primary review approved and second opinion agreed"
+            write_decision "APPROVED" "primary review approved and second opinion agreed; human inspection required before merge"
             exit 0
             ;;
         esac
       else
-        write_decision "APPROVED"
+        write_decision "APPROVED" "ready for human inspection; no automatic merge allowed"
         exit 0
       fi
       ;;
