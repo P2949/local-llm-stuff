@@ -10,12 +10,12 @@ OUTPUT_FILE="${5:?}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 cleanup() {
-  "$SCRIPT_DIR/stop.sh" "$ROLE" >/dev/null 2>&1 || true
+  bash "$SCRIPT_DIR/stop.sh" "$ROLE" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
-"$SCRIPT_DIR/start.sh" "$ROLE"
-"$SCRIPT_DIR/ask.sh" "$PORT" "$SYSTEM_FILE" "$USER_FILE" "$OUTPUT_FILE"
+bash "$SCRIPT_DIR/start.sh" "$ROLE"
+bash "$SCRIPT_DIR/ask.sh" "$PORT" "$SYSTEM_FILE" "$USER_FILE" "$OUTPUT_FILE"
 
 trap - EXIT INT TERM
 cleanup
