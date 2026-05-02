@@ -5,6 +5,10 @@ RUN_DIR="${1:?Usage: 01b-shadow-finder.sh <run-dir>}"
 source "$RUN_DIR/00-meta.env"
 source "$PIPELINE_DIR/config/models.env"
 source "$PIPELINE_DIR/config/pipeline.env"
+if [ -n "${PROJECT_PROFILE_FILE:-}" ] && [ -f "$PROJECT_PROFILE_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$PROJECT_PROFILE_FILE"
+fi
 source "$PIPELINE_DIR/scripts/lib/context.sh"
 
 echo "=== Stage 1b: Shadow Finder ==="
@@ -22,6 +26,14 @@ fi
   echo "# Task"
   cat "$RUN_DIR/00-task.md"
   echo
+  echo "# Pipeline policy"
+  cat "$RUN_DIR/00-policy.md"
+  echo
+  if [ -n "${PROJECT_REVIEW_ADDENDUM:-}" ] && [ -f "$PROJECT_REVIEW_ADDENDUM" ]; then
+    echo "# Project-specific review addendum"
+    cat "$PROJECT_REVIEW_ADDENDUM"
+    echo
+  fi
   echo "# Baseline status"
   cat "$RUN_DIR/00-baseline.md"
   echo
@@ -31,7 +43,10 @@ fi
   echo "# Primary finder report"
   cat "$RUN_DIR/01-finder.md"
   echo
-  echo "# Source context"
+  echo "# Project-prioritized source context"
+  pack_project_context_packs "$TARGET_REPO" "$RUN_DIR/00-task.md" "$CONTEXT_MAX_SOURCE_BYTES"
+  echo
+  echo "# Generic source context"
   pack_repo_sources "$TARGET_REPO" "$CONTEXT_MAX_SOURCE_FILES" "$CONTEXT_MAX_SOURCE_BYTES"
   echo
   echo "Perform an independent second pass. You may agree, disagree, or add supported items."
