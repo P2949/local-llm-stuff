@@ -10,6 +10,9 @@ source "$PIPELINE_DIR/scripts/lib/context.sh"
 echo "=== Stage 1b: Shadow Finder ==="
 
 USER_PROMPT_FILE="/tmp/llm-pipeline-shadow-finder-user-$RUN_ID.md"
+cleanup() { rm -f "$USER_PROMPT_FILE"; }
+trap cleanup EXIT INT TERM
+
 SYSTEM_PROMPT="$PIPELINE_DIR/prompts/finder.md"
 if [ "${TASK_MODE:-fix}" = "feature" ]; then
   SYSTEM_PROMPT="$PIPELINE_DIR/prompts/finder-feature.md"
@@ -34,9 +37,9 @@ fi
   echo "Perform an independent second pass. You may agree, disagree, or add supported items."
 } > "$USER_PROMPT_FILE"
 
-"$PIPELINE_DIR/scripts/model/start.sh" gemma
-"$PIPELINE_DIR/scripts/model/ask.sh" "$GEMMA_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/01b-finder-second-opinion.md"
-"$PIPELINE_DIR/scripts/model/stop.sh" gemma
-rm -f "$USER_PROMPT_FILE"
+"$PIPELINE_DIR/scripts/model/run.sh" gemma "$GEMMA_PORT" "$SYSTEM_PROMPT" "$USER_PROMPT_FILE" "$RUN_DIR/01b-finder-second-opinion.md"
+
+trap - EXIT INT TERM
+cleanup
 
 echo "INFO: shadow finder complete -> $RUN_DIR/01b-finder-second-opinion.md"
