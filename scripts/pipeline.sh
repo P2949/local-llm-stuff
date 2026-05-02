@@ -8,15 +8,6 @@ source "$PIPELINE_DIR/config/pipeline.env"
 
 STAGES="$PIPELINE_DIR/scripts/stages"
 
-run_stage() {
-  local name="$1"; shift
-  echo
-  echo "╔══════════════════════════════════════╗"
-  printf "║  %-36s║\n" "$name"
-  echo "╚══════════════════════════════════════╝"
-  "$STAGES/$name" "$RUN_DIR" "$@"
-}
-
 write_decision() {
   local decision="$1"
   local reason="${2:-}"
@@ -26,6 +17,25 @@ write_decision() {
     echo "$decision" > "$RUN_DIR/09-final-decision.txt"
   fi
   echo "INFO: final decision: $(cat "$RUN_DIR/09-final-decision.txt")"
+}
+
+on_error() {
+  local exit_code=$?
+  local line_no=${BASH_LINENO[0]:-unknown}
+  if [ -n "${RUN_DIR:-}" ] && [ -d "$RUN_DIR" ] && [ ! -s "$RUN_DIR/09-final-decision.txt" ]; then
+    write_decision "NEEDS_HUMAN_REVIEW" "pipeline aborted at line $line_no with exit code $exit_code"
+  fi
+  exit "$exit_code"
+}
+trap on_error ERR
+
+run_stage() {
+  local name="$1"; shift
+  echo
+  echo "╔══════════════════════════════════════╗"
+  printf "║  %-36s║\n" "$name"
+  echo "╚══════════════════════════════════════╝"
+  "$STAGES/$name" "$RUN_DIR" "$@"
 }
 
 get_review_verdict() {
@@ -57,7 +67,6 @@ should_trigger_shadow_finder() {
   for kw in $(echo "$HIGH_SEVERITY_KEYWORDS" | tr ',' '\n'); do
     echo "$task" | grep -qi "$kw" && return 0
   done
-  # Also trigger if primary finder reports high-risk terms or reports no confirmed items on a strict fix run.
   grep -qiE 'unsafe|pub (fn|struct|enum|trait)|serialize|deserialize|file I/O|state invariant' "$RUN_DIR/01-finder.md" 2>/dev/null && return 0
   if [ "${TASK_MODE:-fix}" = "fix" ] && ! grep -qE '^### [FP]-[0-9]+' "$RUN_DIR/01-finder.md" 2>/dev/null; then
     return 0
@@ -87,13 +96,9 @@ check_revision_for_escalation() {
   fi
 }
 
-# Stage 0: baseline.
 run_stage 00-baseline.sh
-
-# Stage 1: finder.
 run_stage 01-finder.sh
 
-# Optional shadow finder.
 if should_trigger_shadow_finder; then
   echo "INFO: triggering shadow finder"
   run_stage 01b-shadow-finder.sh
@@ -101,7 +106,6 @@ else
   echo "INFO: shadow finder skipped"
 fi
 
-# Stage 2/3/4.
 run_stage 02-challenge.sh
 run_stage 03-accepted-issues.sh
 
@@ -121,7 +125,6 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
   echo
   echo "── Patch iteration $((ITERATION + 1)) / $MAX_PATCH_ITERATIONS ──"
   sed -i "s/^ITERATION=.*/ITERATION=$ITERATION/" "$RUN_DIR/00-meta.env"
-  # Refresh sourced vars after sed update.
   source "$RUN_DIR/00-meta.env"
 
   run_stage 05-editor.sh "$CURRENT_PROMPT"
@@ -191,7 +194,6 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
       ;;
 
     REJECT)
-      # A reject can mean patch failure or pipeline contradiction. Do not attempt raw revision.
       if grep -qiE 'issue was invalid|not a real bug|should not have been accepted|NEEDS_RECHALLENGE|contradicts accepted' "$RUN_DIR/07-review.md"; then
         write_decision "NEEDS_HUMAN_REVIEW" "review contradicts accepted items; needs rechallenge"
       else
