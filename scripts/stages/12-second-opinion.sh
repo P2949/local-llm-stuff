@@ -10,6 +10,8 @@ source "$PIPELINE_DIR/scripts/lib/context.sh"
 echo "=== Stage 12: Second Opinion ==="
 
 USER_PROMPT_FILE="/tmp/llm-pipeline-second-opinion-user-$RUN_ID.md"
+cleanup() { rm -f "$USER_PROMPT_FILE"; }
+trap cleanup EXIT INT TERM
 
 {
   echo "# Accepted items"
@@ -30,9 +32,9 @@ USER_PROMPT_FILE="/tmp/llm-pipeline-second-opinion-user-$RUN_ID.md"
   echo "Give independent second opinion with AGREE, DISAGREE, or BLOCK."
 } > "$USER_PROMPT_FILE"
 
-"$PIPELINE_DIR/scripts/model/start.sh" gemma
-"$PIPELINE_DIR/scripts/model/ask.sh" "$GEMMA_PORT" "$PIPELINE_DIR/prompts/second-opinion.md" "$USER_PROMPT_FILE" "$RUN_DIR/08-second-opinion.md"
-"$PIPELINE_DIR/scripts/model/stop.sh" gemma
-rm -f "$USER_PROMPT_FILE"
+"$PIPELINE_DIR/scripts/model/run.sh" gemma "$GEMMA_PORT" "$PIPELINE_DIR/prompts/second-opinion.md" "$USER_PROMPT_FILE" "$RUN_DIR/08-second-opinion.md"
+
+trap - EXIT INT TERM
+cleanup
 
 echo "INFO: second opinion -> $RUN_DIR/08-second-opinion.md"
