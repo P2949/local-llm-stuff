@@ -26,13 +26,13 @@ fi
   cat "$RUN_DIR/00-baseline.md"
   echo
   echo "# Repository map"
-  cat "$RUN_DIR/00-repo-map.md"
+  truncate_file "$RUN_DIR/00-repo-map.md" "${CONTEXT_MAX_REPO_MAP_BYTES:-8000}"
   echo
   echo "# Baseline clippy output"
-  truncate_file "$RUN_DIR/00-baseline-clippy.txt" 40000
+  truncate_file "$RUN_DIR/00-baseline-clippy.txt" "${CONTEXT_MAX_COMMAND_BYTES:-4000}"
   echo
   echo "# Baseline test output"
-  truncate_file "$RUN_DIR/00-baseline-test.txt" 40000
+  truncate_file "$RUN_DIR/00-baseline-test.txt" "${CONTEXT_MAX_COMMAND_BYTES:-4000}"
   echo
   echo "# Source context"
   pack_repo_sources "$TARGET_REPO" "$CONTEXT_MAX_SOURCE_FILES" "$CONTEXT_MAX_SOURCE_BYTES"
