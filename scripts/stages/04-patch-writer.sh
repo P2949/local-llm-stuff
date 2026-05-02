@@ -10,6 +10,8 @@ source "$PIPELINE_DIR/scripts/lib/context.sh"
 echo "=== Stage 4: Patch Writer ==="
 
 USER_PROMPT_FILE="/tmp/llm-pipeline-patchwriter-user-$RUN_ID.md"
+cleanup() { rm -f "$USER_PROMPT_FILE"; }
+trap cleanup EXIT INT TERM
 
 {
   echo "# Original task"
@@ -30,9 +32,9 @@ USER_PROMPT_FILE="/tmp/llm-pipeline-patchwriter-user-$RUN_ID.md"
   echo "Write the precise patch prompt for the editor."
 } > "$USER_PROMPT_FILE"
 
-"$PIPELINE_DIR/scripts/model/start.sh" qwen27b
-"$PIPELINE_DIR/scripts/model/ask.sh" "$QWEN27B_PORT" "$PIPELINE_DIR/prompts/patch-writer.md" "$USER_PROMPT_FILE" "$RUN_DIR/04-patch-prompt.md"
-"$PIPELINE_DIR/scripts/model/stop.sh" qwen27b
-rm -f "$USER_PROMPT_FILE"
+"$PIPELINE_DIR/scripts/model/run.sh" qwen27b "$QWEN27B_PORT" "$PIPELINE_DIR/prompts/patch-writer.md" "$USER_PROMPT_FILE" "$RUN_DIR/04-patch-prompt.md"
+
+trap - EXIT INT TERM
+cleanup
 
 echo "INFO: patch prompt -> $RUN_DIR/04-patch-prompt.md"
