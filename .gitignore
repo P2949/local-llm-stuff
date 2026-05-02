@@ -23,6 +23,10 @@
 *.DS_Store
 *.gguf
 
+# Local pipeline config
+/config/models.local.env
+/config/pipeline.local.env
+
 # IDE / OS
 
 /.cache/
