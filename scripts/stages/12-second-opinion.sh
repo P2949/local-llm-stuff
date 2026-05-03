@@ -5,6 +5,10 @@ RUN_DIR="${1:?Usage: 12-second-opinion.sh <run-dir>}"
 source "$RUN_DIR/00-meta.env"
 source "$PIPELINE_DIR/config/models.env"
 source "$PIPELINE_DIR/config/pipeline.env"
+if [ -n "${PROJECT_PROFILE_FILE:-}" ] && [ -f "$PROJECT_PROFILE_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$PROJECT_PROFILE_FILE"
+fi
 source "$PIPELINE_DIR/scripts/lib/context.sh"
 
 echo "=== Stage 12: Second Opinion ==="
@@ -17,7 +21,7 @@ source_diff() {
   if [ -d "${WORKTREE_PATH:-}" ]; then
     (
       cd "$WORKTREE_PATH"
-      git diff -- src tests 2>/dev/null || git diff -- . ':!target' ':!build' ':!debug' ':!release' 2>/dev/null || true
+      git diff -- src tests stutter stutter-common stutter-ebpf 2>/dev/null || git diff -- . ':!target' ':!build' ':!debug' ':!release' 2>/dev/null || true
     )
   else
     awk '
@@ -36,6 +40,14 @@ harness_summary_without_build_artifacts() {
 }
 
 {
+  echo "# Pipeline policy"
+  cat "$RUN_DIR/00-policy.md"
+  echo
+  if [ -n "${PROJECT_REVIEW_ADDENDUM:-}" ] && [ -f "$PROJECT_REVIEW_ADDENDUM" ]; then
+    echo "# Project-specific review addendum"
+    cat "$PROJECT_REVIEW_ADDENDUM"
+    echo
+  fi
   echo "# Accepted items"
   truncate_file "$RUN_DIR/03-accepted-issues.md" 24000
   echo
@@ -45,13 +57,19 @@ harness_summary_without_build_artifacts() {
   echo "# Harness result"
   harness_summary_without_build_artifacts
   echo
+  echo "# Policy checks"
+  cat "$RUN_DIR/06-no-agent-commits.txt" 2>/dev/null || true
+  cat "$RUN_DIR/06-allowed-files.txt" 2>/dev/null || true
+  cat "$RUN_DIR/06-patch-size.txt" 2>/dev/null || true
+  cat "$RUN_DIR/06-feature-tests.txt" 2>/dev/null || true
+  echo
   echo "# Source diff only"
   source_diff | head -c "$CONTEXT_MAX_DIFF_BYTES"
   echo
   echo "# Primary review"
   truncate_file "$RUN_DIR/07-review.md" 24000 2>/dev/null || true
   echo
-  echo "Give independent second opinion with AGREE, DISAGREE, or BLOCK."
+  echo "Give independent second opinion with AGREE, DISAGREE, or BLOCK. Block on any policy violation."
 } > "$USER_PROMPT_FILE"
 
 bash "$PIPELINE_DIR/scripts/model/run.sh" gemma "$GEMMA_PORT" "$PIPELINE_DIR/prompts/second-opinion.md" "$USER_PROMPT_FILE" "$RUN_DIR/08-second-opinion.md"
