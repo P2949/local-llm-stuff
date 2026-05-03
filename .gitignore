@@ -164,3 +164,7 @@ AGENTS.local.md
 .pi/SYSTEM.md
 
 
+
+# Local scratch/test repositories
+test/agent-*
+test/stutter
