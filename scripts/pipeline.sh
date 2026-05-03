@@ -130,6 +130,18 @@ reset_worktree_for_editor() {
   git -C "$WORKTREE_PATH" clean -fd >/dev/null
 }
 
+changed_files_from_patch_or_worktree() {
+  local patch_file="$1"
+  if [ -s "$patch_file" ]; then
+    grep -E '^diff --git a/.* b/' "$patch_file" \
+      | sed -E 's#^diff --git a/[^ ]+ b/##' \
+      | tr '\n' ' ' \
+      | sed -E 's/[[:space:]]+$//'
+  elif [ -n "${WORKTREE_PATH:-}" ] && [ -d "$WORKTREE_PATH" ]; then
+    git -C "$WORKTREE_PATH" diff --name-only | tr '\n' ' ' | sed -E 's/[[:space:]]+$//'
+  fi
+}
+
 archive_candidate_artifacts() {
   local candidate="$1"
   local dir="$RUN_DIR/candidates/$candidate"
@@ -144,6 +156,7 @@ archive_candidate_artifacts() {
     05-source-location-check.txt \
     05-aider-files.txt \
     05-agent-result.md \
+    06-verify-exit-code.txt \
     06-status.txt \
     06-status-reason.txt \
     06-editor-stop.txt \
@@ -169,14 +182,15 @@ archive_candidate_artifacts() {
   [ -s "$dir/06-status.txt" ] && status="$(cat "$dir/06-status.txt")"
   local reason="none"
   [ -s "$dir/06-status-reason.txt" ] && reason="$(cat "$dir/06-status-reason.txt")"
+  local verify_exit="missing"
+  [ -s "$dir/06-verify-exit-code.txt" ] && verify_exit="$(cat "$dir/06-verify-exit-code.txt")"
   local diff_sha="empty"
   if [ -s "$dir/06-diff.patch" ]; then
     diff_sha="$(sha256sum "$dir/06-diff.patch" | awk '{print $1}')"
   fi
   local changed_files="(none)"
-  if [ -s "$dir/06-diff.patch" ]; then
-    changed_files="$(git -C "$WORKTREE_PATH" diff --name-only | tr '\n' ' ')"
-  fi
+  changed_files="$(changed_files_from_patch_or_worktree "$dir/06-diff.patch")"
+  [ -n "$changed_files" ] || changed_files="(none)"
 
   cat > "$dir/candidate-summary.md" << EOF_SUMMARY
 # Candidate Summary
@@ -185,6 +199,7 @@ archive_candidate_artifacts() {
 - Iteration: $ITERATION
 - Verification status: $status
 - Verification reason: $reason
+- Verification exit code: $verify_exit
 - Diff sha256: $diff_sha
 - Changed files: ${changed_files:-"(none)"}
 EOF_SUMMARY
@@ -195,15 +210,20 @@ write_blocked_candidate_verification() {
   local reason="$2"
   echo "BLOCKED" > "$RUN_DIR/06-status.txt"
   echo "$reason" > "$RUN_DIR/06-status-reason.txt"
-  : > "$RUN_DIR/06-diff.patch"
-  : > "$RUN_DIR/06-diff-stat.txt"
-  echo "NOT RUN: $reason" > "$RUN_DIR/06-build.txt"
-  echo "NOT RUN: $reason" > "$RUN_DIR/06-clippy.txt"
-  echo "NOT RUN: $reason" > "$RUN_DIR/06-test.txt"
-  echo "NOT RUN: $reason" > "$RUN_DIR/06-workspace-test.txt"
-  echo "NOT RUN: $reason" > "$RUN_DIR/06-fmt-check-1.txt"
-  echo "NOT RUN: $reason" > "$RUN_DIR/06-fmt-check-2.txt"
-  cat > "$RUN_DIR/05-agent-result.md" << EOF_RESULT
+  [ -f "$RUN_DIR/06-diff.patch" ] || : > "$RUN_DIR/06-diff.patch"
+  [ -f "$RUN_DIR/06-diff-stat.txt" ] || : > "$RUN_DIR/06-diff-stat.txt"
+  [ -f "$RUN_DIR/06-build.txt" ] || echo "NOT RUN: $reason" > "$RUN_DIR/06-build.txt"
+  [ -f "$RUN_DIR/06-clippy.txt" ] || echo "NOT RUN: $reason" > "$RUN_DIR/06-clippy.txt"
+  [ -f "$RUN_DIR/06-test.txt" ] || echo "NOT RUN: $reason" > "$RUN_DIR/06-test.txt"
+  [ -f "$RUN_DIR/06-workspace-test.txt" ] || echo "NOT RUN: $reason" > "$RUN_DIR/06-workspace-test.txt"
+  [ -f "$RUN_DIR/06-fmt-check-1.txt" ] || echo "NOT RUN: $reason" > "$RUN_DIR/06-fmt-check-1.txt"
+  [ -f "$RUN_DIR/06-fmt-check-2.txt" ] || echo "NOT RUN: $reason" > "$RUN_DIR/06-fmt-check-2.txt"
+
+  if [ ! -f "$RUN_DIR/05-agent-result.md" ]; then
+    local changed_files="(none)"
+    changed_files="$(changed_files_from_patch_or_worktree "$RUN_DIR/06-diff.patch")"
+    [ -n "$changed_files" ] || changed_files="(none)"
+    cat > "$RUN_DIR/05-agent-result.md" << EOF_RESULT
 # Agent Result
 
 - Run: $RUN_ID
@@ -211,13 +231,24 @@ write_blocked_candidate_verification() {
 - Final status: BLOCKED
 - Final reason: $reason
 - Editor candidate: $candidate
-- Files changed: (none)
+- Files changed: $changed_files
 - Project profile: ${PROJECT_PROFILE_NAME:-generic}
 
 ## Verification result
 
-The editor candidate did not reach external verification. See 05-agent-output.txt and 05-source-location-check.txt.
+The editor candidate did not reach external verification or verification aborted before writing a complete agent result. Preserved verifier artifacts, if any, are authoritative.
 EOF_RESULT
+  else
+    {
+      echo
+      echo "## Pipeline blocked metadata"
+      echo
+      echo "- Editor candidate: $candidate"
+      echo "- Pipeline final status: BLOCKED"
+      echo "- Pipeline final reason: $reason"
+      echo "- Preserved verifier artifacts: yes"
+    } >> "$RUN_DIR/05-agent-result.md"
+  fi
 }
 
 run_editor_candidate() {
@@ -245,6 +276,7 @@ run_editor_candidate() {
   run_stage 06-verify.sh "$prompt_file"
   verify_status=$?
   set -e
+  echo "$verify_status" > "$RUN_DIR/06-verify-exit-code.txt"
 
   if [ "$verify_status" -ne 0 ]; then
     write_blocked_candidate_verification "$candidate" "verification stage failed with exit code $verify_status"
