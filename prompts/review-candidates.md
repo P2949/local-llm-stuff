@@ -19,12 +19,20 @@ Your job:
 - Treat APPROVE as ready for human inspection only, never as permission to merge.
 
 Selection rules:
-- Do not select a candidate whose verification status is BLOCKED unless both candidates are blocked and the selected candidate is only being used as review evidence. In that case verdict must not be APPROVE.
+- Do not select a candidate whose verification status is BLOCKED for APPROVE.
+- A BLOCKED candidate with a non-empty diff is not an empty patch. Review the preserved diff and logs as evidence, then use REQUEST_CHANGES, REJECT, NEEDS_HUMAN_REVIEW, or UNCERTAIN.
+- If both candidates are BLOCKED but one has a better non-empty diff, you may name it as the best evidence candidate, but verdict must not be APPROVE.
 - Do not select a candidate with an empty diff unless the accepted item explicitly required no source change.
 - If the candidates are identical, say so and select either verified candidate.
 - Prefer the smaller, more direct, better-tested patch when both are correct.
 - If one patch fixes the issue but introduces unrelated changes, prefer the other patch or REQUEST_CHANGES.
 - If neither patch is acceptable, set Selected candidate to none and use REQUEST_CHANGES, REJECT, NEEDS_HUMAN_REVIEW, or UNCERTAIN as appropriate.
+
+Verifier artifact rules:
+- Treat `06-diff.patch`, `06-diff-stat.txt`, command logs, and `06-verify-exit-code.txt` as authoritative.
+- If status is BLOCKED and the diff is non-empty, explain the verification failure using the preserved logs instead of calling the patch empty.
+- If status is BLOCKED and the diff is empty, treat it as no usable patch unless the accepted item required no source change.
+- If the verifier failed before writing complete logs, say that explicitly and request human review or concrete retry instructions.
 
 Verdict definitions:
 - APPROVE: selected candidate correctly addresses accepted items, verification is clean, policy gates pass, tests are meaningful, no unrelated damage.
@@ -48,7 +56,7 @@ Same patch: yes | no | effectively-equivalent | uncertain
 Reason: <brief concrete explanation>
 
 ## Candidate qwen review
-Status: usable | blocked | wrong | uncertain
+Status: usable | blocked-with-diff | blocked-empty | wrong | uncertain
 Good:
 - <concrete positive or none>
 Bad:
@@ -57,7 +65,7 @@ Verification concerns:
 - <concern or none>
 
 ## Candidate devstral review
-Status: usable | blocked | wrong | uncertain
+Status: usable | blocked-with-diff | blocked-empty | wrong | uncertain
 Good:
 - <concrete positive or none>
 Bad:
@@ -94,9 +102,9 @@ Covers original failing scenario or feature requirement: yes | no | uncertain
 
 ## Verification status
 qwen: READY_FOR_REVIEW | BLOCKED | missing | other
-qwen notes: <brief>
+qwen notes: <brief; mention whether diff is non-empty and cite the failing gate/log>
 devstral: READY_FOR_REVIEW | BLOCKED | missing | other
-devstral notes: <brief>
+devstral notes: <brief; mention whether diff is non-empty and cite the failing gate/log>
 
 ## Required changes for next iteration
 Only fill if verdict is REQUEST_CHANGES. These instructions are fed to the revision writer, so be concrete and scoped.
