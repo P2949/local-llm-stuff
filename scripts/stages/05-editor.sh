@@ -26,6 +26,53 @@ if [ "${TASK_MODE:-fix}" = "review" ]; then
   exit 1
 fi
 
+extract_required_source_locations() {
+  local prompt_file="${1:?prompt required}"
+  awk '
+    BEGIN { in_section=0 }
+    /^## Required source locations/ { in_section=1; next }
+    /^## / && in_section { exit }
+    in_section && /^- / {
+      line=$0
+      sub(/^- /, "", line)
+      gsub(/`/, "", line)
+      split(line, parts, ":")
+      symbol=parts[1]
+      sub(/^[[:space:]]+/, "", symbol)
+      sub(/[[:space:]]+$/, "", symbol)
+      path=line
+      sub(/^[^:]+:/, "", path)
+      sub(/:[0-9]+(:.*)?$/, "", path)
+      sub(/^[[:space:]]+/, "", path)
+      sub(/[[:space:]]+$/, "", path)
+      if (symbol != "" && path != "") print symbol "\t" path
+    }
+  ' "$prompt_file"
+}
+
+allowed_file_matches() {
+  local file="${1:?file required}"
+  local pattern
+  for pattern in "${ALLOWED_FILES[@]:-}"; do
+    case "$pattern" in
+      "<"*|"("*) continue ;;
+    esac
+    if [ "$file" = "$pattern" ] || [[ "$file" == $pattern ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+append_unique_aider_file() {
+  local file="${1:?file required}"
+  local existing
+  for existing in "${AIDER_FILE_ARGV[@]:-}"; do
+    [ "$existing" = "$file" ] && return 0
+  done
+  AIDER_FILE_ARGV+=("$file")
+}
+
 AIDER_PROMPT_ARGS=()
 if "$AIDER_BIN" --help 2>/dev/null | grep -q -- '--message-file'; then
   AIDER_PROMPT_ARGS=(--message-file "$PROMPT_FILE")
@@ -76,6 +123,7 @@ if "$AIDER_BIN" --help 2>/dev/null | grep -q -- '--yes-always'; then
   AIDER_NONINTERACTIVE_ARGV+=(--yes-always)
 fi
 
+mapfile -t ALLOWED_FILES < <(policy_extract_allowed_files "$PROMPT_FILE")
 AIDER_FILE_ARGV=()
 while IFS= read -r allowed_file; do
   [ -n "$allowed_file" ] || continue
@@ -85,12 +133,58 @@ while IFS= read -r allowed_file; do
       ;;
   esac
   if [ -e "$allowed_file" ]; then
-    AIDER_FILE_ARGV+=("$allowed_file")
+    append_unique_aider_file "$allowed_file"
   fi
-done < <(policy_extract_allowed_files "$PROMPT_FILE")
+done < <(printf '%s\n' "${ALLOWED_FILES[@]:-}")
+
+SOURCE_CHECK_OUT="$RUN_DIR/05-source-location-check.txt"
+SOURCE_CHECK_FAILED=0
+SOURCE_LOCATION_COUNT=0
+{
+  echo "# Source-location check"
+  echo "Prompt: $PROMPT_FILE"
+  echo
+} > "$SOURCE_CHECK_OUT"
+
+while IFS=$'\t' read -r symbol source_file; do
+  [ -n "${symbol:-}" ] || continue
+  SOURCE_LOCATION_COUNT=$((SOURCE_LOCATION_COUNT + 1))
+  echo "- symbol=$symbol file=$source_file" >> "$SOURCE_CHECK_OUT"
+
+  if [ ! -f "$source_file" ]; then
+    echo "  FAIL: required source file does not exist" >> "$SOURCE_CHECK_OUT"
+    SOURCE_CHECK_FAILED=1
+    continue
+  fi
+
+  if ! allowed_file_matches "$source_file"; then
+    echo "  FAIL: required source file is not present in Allowed files" >> "$SOURCE_CHECK_OUT"
+    SOURCE_CHECK_FAILED=1
+  fi
+
+  if grep -nF -- "$symbol" "$source_file" >> "$SOURCE_CHECK_OUT" 2>/dev/null; then
+    echo "  PASS: symbol found" >> "$SOURCE_CHECK_OUT"
+  else
+    echo "  FAIL: symbol not found in required source file" >> "$SOURCE_CHECK_OUT"
+    SOURCE_CHECK_FAILED=1
+  fi
+
+  append_unique_aider_file "$source_file"
+done < <(extract_required_source_locations "$PROMPT_FILE")
+
+if [ "$SOURCE_LOCATION_COUNT" -eq 0 ]; then
+  echo "FAIL: no Required source locations section found in patch prompt" >> "$SOURCE_CHECK_OUT"
+  SOURCE_CHECK_FAILED=1
+fi
+
+if [ "$SOURCE_CHECK_FAILED" -ne 0 ]; then
+  cat "$SOURCE_CHECK_OUT" | tee "$RUN_DIR/05-agent-output.txt" >&2
+  echo "2" > "$RUN_DIR/05-agent-exit-code.txt"
+  exit 1
+fi
 
 if [ "${#AIDER_FILE_ARGV[@]}" -gt 0 ]; then
-  printf 'INFO: Aider allowed file args:' | tee "$RUN_DIR/05-aider-files.txt"
+  printf 'INFO: Aider allowed/source file args:' | tee "$RUN_DIR/05-aider-files.txt"
   printf ' %s' "${AIDER_FILE_ARGV[@]}" | tee -a "$RUN_DIR/05-aider-files.txt"
   printf '\n' | tee -a "$RUN_DIR/05-aider-files.txt"
 else
