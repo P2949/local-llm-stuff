@@ -71,6 +71,32 @@ if [ -n "${AIDER_EXTRA_ARGS:-}" ]; then
   AIDER_EXTRA_ARGV=($AIDER_EXTRA_ARGS)
 fi
 
+AIDER_NONINTERACTIVE_ARGV=()
+if "$AIDER_BIN" --help 2>/dev/null | grep -q -- '--yes-always'; then
+  AIDER_NONINTERACTIVE_ARGV+=(--yes-always)
+fi
+
+AIDER_FILE_ARGV=()
+while IFS= read -r allowed_file; do
+  [ -n "$allowed_file" ] || continue
+  case "$allowed_file" in
+    "<"*|"("*|*"*"*|*"?"*|*"["*)
+      continue
+      ;;
+  esac
+  if [ -e "$allowed_file" ]; then
+    AIDER_FILE_ARGV+=("$allowed_file")
+  fi
+done < <(policy_extract_allowed_files "$PROMPT_FILE")
+
+if [ "${#AIDER_FILE_ARGV[@]}" -gt 0 ]; then
+  printf 'INFO: Aider allowed file args:' | tee "$RUN_DIR/05-aider-files.txt"
+  printf ' %s' "${AIDER_FILE_ARGV[@]}" | tee -a "$RUN_DIR/05-aider-files.txt"
+  printf '\n' | tee -a "$RUN_DIR/05-aider-files.txt"
+else
+  echo "WARN: no exact existing allowed files found to pass to Aider" | tee "$RUN_DIR/05-aider-files.txt"
+fi
+
 EDITOR_API_BASE="http://127.0.0.1:${QWEN_CODER_PORT}/v1"
 policy_assert_local_api_base "$EDITOR_API_BASE"
 
@@ -86,7 +112,9 @@ OPENAI_API_KEY="local" \
   --no-gitignore \
   --no-show-model-warnings \
   --no-auto-lint \
+  "${AIDER_NONINTERACTIVE_ARGV[@]}" \
   "${AIDER_EXTRA_ARGV[@]}" \
+  "${AIDER_FILE_ARGV[@]}" \
   "${AIDER_PROMPT_ARGS[@]}" \
   2>&1 | tee "$RUN_DIR/05-agent-output.txt"
 AIDER_EXIT=${PIPESTATUS[0]}
