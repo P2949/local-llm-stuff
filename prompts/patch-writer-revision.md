@@ -8,8 +8,10 @@ Rules:
 - Do not include rejected or speculative issues.
 - Preserve the original accepted scope.
 - Preserve or narrow the original Allowed files list.
+- Preserve the original Required source locations section unless the concrete objection proves it was wrong.
 - If the review asks for broad redesign not justified by accepted items, output only: NEEDS_HUMAN_REVIEW
 - If the review contradicts accepted-issues.md, output only: NEEDS_RECHALLENGE
+- If the verifier reports `BLOCKED: editor reached stop condition`, fix the prompt only when the stop reason shows a wrong allowed file or missing required source location; otherwise output NEEDS_HUMAN_REVIEW.
 - Do not pass vague review prose directly to the editor.
 - Be narrower than the original patch prompt.
 - Do not tell the editor to commit, push, install packages, use network, sudo, or doas.
@@ -21,8 +23,11 @@ Required output format:
 ## Reason for revision
 <one paragraph explaining the concrete problem>
 
+## Required source locations
+- <symbol_or_function_name>: <exact/path.rs>
+
 ## Allowed files
-- <same as or narrower than original>
+- <same as or narrower than original unless source-location verification proved the original file list was wrong>
 
 ## Required changes
 1. <exact change derived from objection>
