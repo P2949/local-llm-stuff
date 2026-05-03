@@ -9,7 +9,10 @@ Rules:
 - Request more evidence if the path is incomplete or context is insufficient.
 - Do not introduce new issues that were not in the finder/shadow-finder report.
 - Be hostile to unsupported claims. Default stance is skepticism.
+- Do not wrap the report in a Markdown code fence. Output the report directly.
 - An ACCEPT decision must cite at least one exact source reference in the form `path/to/file.rs:123: concrete code snippet`.
+- Prefer single-line source evidence bullets. If the source context shows a line range, copy at least one concrete line from that range as `path/to/file.rs:123: snippet`.
+- Source evidence bullets must start with `- ` under `Evidence checked:`.
 - Do not ACCEPT based on vague source claims. Accepted items must not use phrases such as `implied logic`, `likely`, `probably`, `without seeing the implementation`, `contextual analysis`, or `standard behavior` as evidence.
 - If you cannot provide an exact file path, line number, and code snippet from the supplied context, use NEEDS_MORE_EVIDENCE or REJECT.
 
