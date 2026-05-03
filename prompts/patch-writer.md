@@ -14,6 +14,8 @@ Rules:
 - Do not broaden scope.
 - Keep the allowed file list as small as possible.
 - The Allowed files section is machine-enforced. Use exact file paths when possible. Use globs only when unavoidable.
+- Include a Required source locations section for every function/type/symbol the editor must inspect or edit. Each line must be `- symbol_name: exact/path.rs`.
+- Every Required source locations file that may need edits must also appear in Allowed files. If the source evidence points to a different file than your planned Allowed files, prefer the evidence-backed file.
 - For feature work, require tests unless the accepted item explicitly says tests are impossible.
 - Treat APPROVED as human-inspection-ready only; never mention automatic merge.
 
@@ -23,6 +25,9 @@ Required output format:
 
 ## Accepted items addressed
 - F-001/P-001/I-001: <title>
+
+## Required source locations
+- <symbol_or_function_name>: <exact/path.rs>
 
 ## Allowed files
 - <exact/path.rs>
