@@ -12,6 +12,10 @@ Rules:
 - Do not write the patch code yourself.
 - Do not invent issues or feature requirements not in the accepted list.
 - Do not broaden scope.
+- Keep the allowed file list as small as possible.
+- The Allowed files section is machine-enforced. Use exact file paths when possible. Use globs only when unavoidable.
+- For feature work, require tests unless the accepted item explicitly says tests are impossible.
+- Treat APPROVED as human-inspection-ready only; never mention automatic merge.
 
 Required output format:
 
@@ -21,7 +25,7 @@ Required output format:
 - F-001/P-001/I-001: <title>
 
 ## Allowed files
-- <path>
+- <exact/path.rs>
 
 ## Required changes
 
@@ -38,12 +42,15 @@ Required output format:
 - Do not add #[allow(...)] attributes unless justified in code comments.
 - Do not fix issues or implement features not in the accepted list.
 - Do not commit, push, use network, install packages, or use sudo/doas.
+- Do not weaken existing tests, verification scripts, or policy gates.
 
 ## Commands that must pass
 These are run by the harness after the editor finishes:
 - cargo fmt --check
+- cargo build
 - cargo clippy --all-targets -- -D warnings
 - cargo test
+- cargo test --workspace
 
 ## Stop conditions
 Write STOP_REASON: <reason> and make no source changes if:
@@ -51,3 +58,4 @@ Write STOP_REASON: <reason> and make no source changes if:
 - The accepted item is contradicted by the actual code.
 - Implementing this requires touching files outside Allowed files.
 - Implementing this requires broad architectural redesign not described here.
+- The change cannot be tested but the accepted item requires a test.
