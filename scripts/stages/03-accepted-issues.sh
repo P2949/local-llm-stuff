@@ -9,6 +9,7 @@ echo "=== Stage 3: Extract Consensus Accepted Items ==="
 OUT="$RUN_DIR/03-accepted-issues.md"
 QWEN_CHALLENGE="$RUN_DIR/02-challenge.md"
 GEMMA_CHALLENGE="$RUN_DIR/02b-challenge-gemma.md"
+EVIDENCE_AUDIT="$RUN_DIR/03-evidence-audit.md"
 
 if [ ! -s "$QWEN_CHALLENGE" ]; then
   echo "ERROR: missing Qwen challenge report: $QWEN_CHALLENGE" >&2
@@ -37,10 +38,35 @@ normalize_ids() {
   done | sort -u
 }
 
+# ACCEPT blocks are allowed through only when they include concrete source
+# evidence. This is intentionally deterministic: prompt compliance is not enough.
+# Accepted evidence must include at least one bullet like:
+#   - stutter/src/main.rs:321: score.total = u64::MAX / 4;
+# Blocks using vague evidence language are rejected before consensus extraction.
 extract_accepted_ids_raw() {
-  awk '
-    function accepted(b) { return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/ }
-    function emit() { if (id != "" && accepted(block)) print id }
+  awk -v report_name="$2" -v audit_file="$EVIDENCE_AUDIT" '
+    function accepted(b) {
+      return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/
+    }
+    function has_source_evidence(b) {
+      return b ~ /(^|\n)[[:space:]]*-[[:space:]]*[^[:space:]]+:[0-9]+:[[:space:]]*[^[:space:]]+/
+    }
+    function has_banned_evidence_language(b, lower) {
+      lower = tolower(b)
+      return lower ~ /(implied logic|likely|probably|without seeing the implementation|contextual analysis|standard behavior)/
+    }
+    function emit() {
+      if (id == "" || !accepted(block)) return
+      if (!has_source_evidence(block)) {
+        print "- " report_name " " id ": rejected ACCEPT during extraction; missing exact source evidence bullet" >> audit_file
+        return
+      }
+      if (has_banned_evidence_language(block)) {
+        print "- " report_name " " id ": rejected ACCEPT during extraction; contains banned vague evidence language" >> audit_file
+        return
+      }
+      print id
+    }
     /^## [FPI]-?[0-9]+[[:space:]:]/ {
       emit()
       id=$2
@@ -65,8 +91,15 @@ CONSENSUS_IDS="$(mktemp)"
 cleanup() { rm -f "$QWEN_IDS" "$GEMMA_IDS" "$CONSENSUS_IDS"; }
 trap cleanup EXIT INT TERM
 
-extract_accepted_ids_raw "$QWEN_CHALLENGE" | normalize_ids > "$QWEN_IDS"
-extract_accepted_ids_raw "$GEMMA_CHALLENGE" | normalize_ids > "$GEMMA_IDS"
+{
+  echo "# Accepted Evidence Audit"
+  echo
+  echo "Only ACCEPT blocks with exact source evidence bullets may enter consensus."
+  echo
+} > "$EVIDENCE_AUDIT"
+
+extract_accepted_ids_raw "$QWEN_CHALLENGE" "qwen" | normalize_ids > "$QWEN_IDS"
+extract_accepted_ids_raw "$GEMMA_CHALLENGE" "gemma" | normalize_ids > "$GEMMA_IDS"
 comm -12 "$QWEN_IDS" "$GEMMA_IDS" > "$CONSENSUS_IDS"
 
 QWEN_COUNT="$(wc -l < "$QWEN_IDS" | tr -d ' ')"
@@ -78,6 +111,7 @@ CONSENSUS_COUNT="$(wc -l < "$CONSENSUS_IDS" | tr -d ' ')"
   echo
   echo "Extracted from: 02-challenge.md and 02b-challenge-gemma.md"
   echo "Consensus rule: only items accepted by both Qwen and Gemma may reach patch-writer/editor stages."
+  echo "Evidence rule: accepted items must include exact source evidence bullets; see 03-evidence-audit.md."
   echo "Date: $(date -Iseconds)"
   echo "Mode: ${TASK_MODE:-fix}"
   echo "Qwen accepted: $QWEN_COUNT"
@@ -99,14 +133,19 @@ CONSENSUS_COUNT="$(wc -l < "$CONSENSUS_IDS" | tr -d ' ')"
       }
       return ""
     }
+    function accepted(b) { return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/ }
+    function has_source_evidence(b) { return b ~ /(^|\n)[[:space:]]*-[[:space:]]*[^[:space:]]+:[0-9]+:[[:space:]]*[^[:space:]]+/ }
+    function has_banned_evidence_language(b, lower) {
+      lower = tolower(b)
+      return lower ~ /(implied logic|likely|probably|without seeing the implementation|contextual analysis|standard behavior)/
+    }
     BEGIN {
       while ((getline id < ids_file) > 0) consensus[id]=1
       close(ids_file)
     }
-    function accepted(b) { return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/ }
     function emit() {
       normalized_id = norm(id)
-      if (normalized_id != "" && (normalized_id in consensus) && accepted(block)) {
+      if (normalized_id != "" && (normalized_id in consensus) && accepted(block) && has_source_evidence(block) && !has_banned_evidence_language(block)) {
         print "<!-- consensus: qwen=ACCEPT gemma=ACCEPT id=" normalized_id " -->"
         print block "\n"
       }
