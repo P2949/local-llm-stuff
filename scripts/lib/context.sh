@@ -27,6 +27,11 @@ truncate_file() {
   fi
 }
 
+print_numbered_file() {
+  local file="${1:?file required}"
+  nl -ba "$file"
+}
+
 repo_file_list() {
   local repo="$1"
   local max_files="${2:-80}"
@@ -81,7 +86,7 @@ pack_project_context_packs() {
     echo
     echo "## PROJECT CONTEXT FILE: $file"
     echo '```'
-    cat "$file"
+    print_numbered_file "$file"
     echo '```'
     used=$((used + size))
   done < <(context_pack_files_for_task "$task_file")
@@ -108,7 +113,7 @@ pack_repo_sources() {
     echo
     echo "## FILE: $file"
     echo '```'
-    cat "$file"
+    print_numbered_file "$file"
     echo '```'
     used=$((used + size))
   done < <(git ls-files '*.rs' 'Cargo.toml' 2>/dev/null | sort)
@@ -139,7 +144,7 @@ pack_touched_files() {
     echo
     echo "## TOUCHED FILE: $file"
     echo '```'
-    cat "$file"
+    print_numbered_file "$file"
     echo '```'
     used=$((used + size))
   done
