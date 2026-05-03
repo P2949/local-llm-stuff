@@ -103,6 +103,7 @@ policy_assert_local_api_base "$EDITOR_API_BASE"
 set +e
 AIDER_OPENAI_API_BASE="$EDITOR_API_BASE" \
 OPENAI_API_KEY="local" \
+timeout "${AIDER_TIMEOUT_SECONDS:-3600}" \
 "$AIDER_BIN" \
   --model "$ACTIVE_EDITOR_MODEL" \
   --edit-format "$AIDER_EDIT_FORMAT" \
@@ -137,6 +138,10 @@ if policy_bool_enabled "${ENFORCE_NO_AGENT_COMMITS:-1}" && [ "$BASE_AFTER" != "$
   echo "ERROR: editor changed HEAD; agents must not commit" | tee -a "$RUN_DIR/05-editor-policy.txt" >&2
   echo "$AIDER_EXIT" > "$RUN_DIR/05-agent-exit-code.txt"
   exit 1
+fi
+
+if [ "$AIDER_EXIT" -eq 124 ]; then
+  echo "ERROR: Aider timed out after ${AIDER_TIMEOUT_SECONDS:-3600}s" | tee -a "$RUN_DIR/05-agent-output.txt" >&2
 fi
 
 echo "INFO: Aider exit code: $AIDER_EXIT" | tee -a "$RUN_DIR/05-agent-output.txt"
