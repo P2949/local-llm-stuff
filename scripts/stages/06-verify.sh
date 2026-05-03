@@ -143,18 +143,20 @@ if [ "$FINAL_STATUS" != "BLOCKED" ]; then
       echo "SKIP: missing $binary" > "$outfile"
       return 0
     fi
-    set +e
-    policy_run_shell_cmd "$tool_name" "$outfile" "$mode" "$command_text"
-    local status=$?
-    set -e
+    local status=0
+    if policy_run_shell_cmd "$tool_name" "$outfile" "$mode" "$command_text"; then
+      status=0
+    else
+      status=$?
+    fi
     if [ "$status" -eq 0 ]; then
       echo "- $tool_name: PASS" >> "$OPTIONAL_OUT"
     elif [ "$mode" = "hard" ]; then
-      echo "- $tool_name: FAIL (hard)" >> "$OPTIONAL_OUT"
+      echo "- $tool_name: FAIL (hard, status=$status)" >> "$OPTIONAL_OUT"
       FINAL_STATUS="BLOCKED"
       OPTIONAL_STATUS="fail"
     else
-      echo "- $tool_name: WARN (non-zero)" >> "$OPTIONAL_OUT"
+      echo "- $tool_name: WARN (status=$status)" >> "$OPTIONAL_OUT"
     fi
   }
 
