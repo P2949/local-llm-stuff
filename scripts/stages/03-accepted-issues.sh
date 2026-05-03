@@ -42,6 +42,9 @@ normalize_ids() {
 # evidence. This is intentionally deterministic: prompt compliance is not enough.
 # Accepted evidence must include at least one bullet like:
 #   - stutter/src/main.rs:321: score.total = u64::MAX / 4;
+# A source context range is also accepted when the bullet still includes a
+# concrete snippet, for example:
+#   - stutter/src/main.rs:815-823: fn tune_run_dir(...)
 # Blocks using vague evidence language are rejected before consensus extraction.
 extract_accepted_ids_raw() {
   awk -v report_name="$2" -v audit_file="$EVIDENCE_AUDIT" '
@@ -49,7 +52,7 @@ extract_accepted_ids_raw() {
       return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/
     }
     function has_source_evidence(b) {
-      return b ~ /(^|\n)[[:space:]]*-[[:space:]]*[^[:space:]]+:[0-9]+:[[:space:]]*[^[:space:]]+/
+      return b ~ /(^|\n)[[:space:]]*-[[:space:]]*[^[:space:]]+:[0-9]+(-[0-9]+)?:[[:space:]]*[^[:space:]]+/
     }
     function has_banned_evidence_language(b, lower) {
       lower = tolower(b)
@@ -134,7 +137,7 @@ CONSENSUS_COUNT="$(wc -l < "$CONSENSUS_IDS" | tr -d ' ')"
       return ""
     }
     function accepted(b) { return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/ }
-    function has_source_evidence(b) { return b ~ /(^|\n)[[:space:]]*-[[:space:]]*[^[:space:]]+:[0-9]+:[[:space:]]*[^[:space:]]+/ }
+    function has_source_evidence(b) { return b ~ /(^|\n)[[:space:]]*-[[:space:]]*[^[:space:]]+:[0-9]+(-[0-9]+)?:[[:space:]]*[^[:space:]]+/ }
     function has_banned_evidence_language(b, lower) {
       lower = tolower(b)
       return lower ~ /(implied logic|likely|probably|without seeing the implementation|contextual analysis|standard behavior)/
