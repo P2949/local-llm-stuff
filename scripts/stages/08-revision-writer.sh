@@ -46,7 +46,7 @@ trap cleanup EXIT INT TERM
   cat "$RUN_DIR/06-feature-tests.txt" 2>/dev/null || true
   echo
   echo "# Diff reviewed"
-  truncate_file "$RUN_DIR/06-diff.patch" 100000
+  truncate_file "$RUN_DIR/06-diff.patch" "${CONTEXT_MAX_DIFF_BYTES:-60000}"
   echo
   echo "# Review output"
   cat "$RUN_DIR/07-review.md" 2>/dev/null || echo "(no review; verification was BLOCKED)"
