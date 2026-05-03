@@ -58,6 +58,16 @@ get_review_verdict() {
     | head -1 || echo "UNKNOWN"
 }
 
+get_selected_candidate() {
+  awk '
+    BEGIN { found=0 }
+    /^## Selected candidate/ { found=1; next }
+    found && /qwen|devstral|none/ { print tolower($0); exit }
+  ' "$RUN_DIR/07-review.md" 2>/dev/null \
+    | grep -oiE 'qwen|devstral|none' \
+    | head -1 || echo "none"
+}
+
 get_gemma_verdict() {
   awk '
     BEGIN { found=0 }
@@ -120,6 +130,167 @@ reset_worktree_for_editor() {
   git -C "$WORKTREE_PATH" clean -fd >/dev/null
 }
 
+archive_candidate_artifacts() {
+  local candidate="$1"
+  local dir="$RUN_DIR/candidates/$candidate"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+
+  local file
+  for file in \
+    05-agent-output.txt \
+    05-agent-exit-code.txt \
+    05-editor-policy.txt \
+    05-source-location-check.txt \
+    05-aider-files.txt \
+    05-agent-result.md \
+    06-status.txt \
+    06-status-reason.txt \
+    06-editor-stop.txt \
+    06-quality-scorecard.md \
+    06-no-agent-commits.txt \
+    06-allowed-files.txt \
+    06-patch-size.txt \
+    06-feature-tests.txt \
+    06-optional-quality.md \
+    06-diff-stat.txt \
+    06-diff.patch \
+    06-build.txt \
+    06-clippy.txt \
+    06-test.txt \
+    06-workspace-test.txt \
+    06-fmt-check-1.txt \
+    06-fmt-check-2.txt \
+    06-fmt-autofix.txt; do
+    [ -e "$RUN_DIR/$file" ] && cp "$RUN_DIR/$file" "$dir/$file"
+  done
+
+  local status="missing"
+  [ -s "$dir/06-status.txt" ] && status="$(cat "$dir/06-status.txt")"
+  local reason="none"
+  [ -s "$dir/06-status-reason.txt" ] && reason="$(cat "$dir/06-status-reason.txt")"
+  local diff_sha="empty"
+  if [ -s "$dir/06-diff.patch" ]; then
+    diff_sha="$(sha256sum "$dir/06-diff.patch" | awk '{print $1}')"
+  fi
+  local changed_files="(none)"
+  if [ -s "$dir/06-diff.patch" ]; then
+    changed_files="$(git -C "$WORKTREE_PATH" diff --name-only | tr '\n' ' ')"
+  fi
+
+  cat > "$dir/candidate-summary.md" << EOF_SUMMARY
+# Candidate Summary
+
+- Candidate: $candidate
+- Iteration: $ITERATION
+- Verification status: $status
+- Verification reason: $reason
+- Diff sha256: $diff_sha
+- Changed files: ${changed_files:-"(none)"}
+EOF_SUMMARY
+}
+
+write_blocked_candidate_verification() {
+  local candidate="$1"
+  local reason="$2"
+  echo "BLOCKED" > "$RUN_DIR/06-status.txt"
+  echo "$reason" > "$RUN_DIR/06-status-reason.txt"
+  : > "$RUN_DIR/06-diff.patch"
+  : > "$RUN_DIR/06-diff-stat.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-build.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-clippy.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-test.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-workspace-test.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-fmt-check-1.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-fmt-check-2.txt"
+  cat > "$RUN_DIR/05-agent-result.md" << EOF_RESULT
+# Agent Result
+
+- Run: $RUN_ID
+- Iteration: $ITERATION
+- Final status: BLOCKED
+- Final reason: $reason
+- Editor candidate: $candidate
+- Files changed: (none)
+- Project profile: ${PROJECT_PROFILE_NAME:-generic}
+
+## Verification result
+
+The editor candidate did not reach external verification. See 05-agent-output.txt and 05-source-location-check.txt.
+EOF_RESULT
+}
+
+run_editor_candidate() {
+  local candidate="$1"
+  local prompt_file="$2"
+  local editor_status=0
+  local verify_status=0
+  echo
+  echo "── Candidate editor: $candidate ──"
+  reset_worktree_for_editor
+  rm -f "$RUN_DIR"/05-* "$RUN_DIR"/06-*
+
+  set +e
+  run_stage 05-editor.sh "$prompt_file" "$candidate"
+  editor_status=$?
+  set -e
+
+  if [ "$editor_status" -ne 0 ]; then
+    write_blocked_candidate_verification "$candidate" "editor stage failed before verification with exit code $editor_status"
+    archive_candidate_artifacts "$candidate"
+    return 0
+  fi
+
+  set +e
+  run_stage 06-verify.sh "$prompt_file"
+  verify_status=$?
+  set -e
+
+  if [ "$verify_status" -ne 0 ]; then
+    write_blocked_candidate_verification "$candidate" "verification stage failed with exit code $verify_status"
+  fi
+
+  archive_candidate_artifacts "$candidate"
+}
+
+run_dual_editor_iteration() {
+  local prompt_file="$1"
+  rm -rf "$RUN_DIR/candidates"
+  mkdir -p "$RUN_DIR/candidates"
+
+  run_editor_candidate qwen "$prompt_file"
+  run_editor_candidate devstral "$prompt_file"
+
+  reset_worktree_for_editor
+}
+
+restore_selected_candidate_artifacts() {
+  local candidate="$1"
+  local dir="$RUN_DIR/candidates/$candidate"
+  [ -d "$dir" ] || { echo "ERROR: selected candidate artifacts missing: $candidate" >&2; return 1; }
+
+  local file
+  for file in "$dir"/*; do
+    [ -f "$file" ] || continue
+    case "$(basename "$file")" in
+      candidate-summary.md) continue ;;
+    esac
+    cp "$file" "$RUN_DIR/$(basename "$file")"
+  done
+}
+
+apply_selected_candidate_patch() {
+  local candidate="$1"
+  local dir="$RUN_DIR/candidates/$candidate"
+  [ -d "$dir" ] || { echo "ERROR: selected candidate artifacts missing: $candidate" >&2; return 1; }
+  [ -s "$dir/06-diff.patch" ] || { echo "ERROR: selected candidate has no diff: $candidate" >&2; return 1; }
+
+  reset_worktree_for_editor
+  git -C "$WORKTREE_PATH" apply "$dir/06-diff.patch"
+  restore_selected_candidate_artifacts "$candidate"
+  echo "$candidate" > "$RUN_DIR/07-selected-candidate.txt"
+}
+
 policy_write_manifest "$RUN_DIR"
 policy_assert_local_editor_model
 
@@ -160,34 +331,25 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
   sed -i "s/^ITERATION=.*/ITERATION=$ITERATION/" "$RUN_DIR/00-meta.env"
   source "$RUN_DIR/00-meta.env"
 
-  reset_worktree_for_editor
-  run_stage 05-editor.sh "$CURRENT_PROMPT"
-  run_stage 06-verify.sh "$CURRENT_PROMPT"
-
-  VERIFY_STATUS="$(cat "$RUN_DIR/06-status.txt")"
-  echo "INFO: verification status: $VERIFY_STATUS"
-
-  if [ "$VERIFY_STATUS" = "BLOCKED" ]; then
-    ITERATION=$((ITERATION + 1))
-    if [ "$ITERATION" -ge "$MAX_PATCH_ITERATIONS" ]; then
-      write_decision "NEEDS_HUMAN_REVIEW" "verification blocked after max iterations"
-      exit 1
-    fi
-    sed -i "s/^ITERATION=.*/ITERATION=$ITERATION/" "$RUN_DIR/00-meta.env"
-    source "$RUN_DIR/00-meta.env"
-    run_stage 08-revision-writer.sh
-    REVISION_FILE="$RUN_DIR/04-revision-prompt-${ITERATION}.md"
-    check_revision_for_escalation "$REVISION_FILE"
-    CURRENT_PROMPT="$REVISION_FILE"
-    continue
-  fi
-
+  run_dual_editor_iteration "$CURRENT_PROMPT"
   run_stage 07-review.sh "$CURRENT_PROMPT"
   VERDICT="$(get_review_verdict)"
+  SELECTED_CANDIDATE="$(get_selected_candidate)"
   echo "INFO: review verdict: $VERDICT"
+  echo "INFO: selected candidate: $SELECTED_CANDIDATE"
 
   case "$VERDICT" in
     APPROVE)
+      case "$SELECTED_CANDIDATE" in
+        qwen|devstral)
+          apply_selected_candidate_patch "$SELECTED_CANDIDATE"
+          ;;
+        none|*)
+          write_decision "NEEDS_HUMAN_REVIEW" "review approved but selected no usable candidate"
+          exit 1
+          ;;
+      esac
+
       if should_trigger_second_opinion "$VERDICT"; then
         echo "INFO: triggering second opinion"
         run_stage 12-second-opinion.sh
@@ -203,12 +365,12 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
             exit 1
             ;;
           AGREE|*)
-            write_decision "APPROVED" "primary review approved and second opinion agreed; human inspection required before merge"
+            write_decision "APPROVED" "candidate $SELECTED_CANDIDATE approved and second opinion agreed; human inspection required before merge"
             exit 0
             ;;
         esac
       else
-        write_decision "APPROVED" "ready for human inspection; no automatic merge allowed"
+        write_decision "APPROVED" "candidate $SELECTED_CANDIDATE ready for human inspection; no automatic merge allowed"
         exit 0
       fi
       ;;
@@ -231,16 +393,13 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
       if grep -qiE 'issue was invalid|not a real bug|should not have been accepted|NEEDS_RECHALLENGE|contradicts accepted' "$RUN_DIR/07-review.md"; then
         write_decision "NEEDS_HUMAN_REVIEW" "review contradicts accepted items; needs rechallenge"
       else
-        write_decision "REJECTED" "review rejected the patch"
+        write_decision "REJECTED" "candidate review rejected both patches"
       fi
       exit 1
       ;;
 
     NEEDS_HUMAN_REVIEW|UNCERTAIN)
-      if should_trigger_second_opinion "$VERDICT"; then
-        run_stage 12-second-opinion.sh || true
-      fi
-      write_decision "NEEDS_HUMAN_REVIEW" "review verdict: $VERDICT"
+      write_decision "NEEDS_HUMAN_REVIEW" "candidate review verdict: $VERDICT"
       exit 1
       ;;
 
