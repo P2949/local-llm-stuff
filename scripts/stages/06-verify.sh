@@ -16,6 +16,7 @@ cd "$WORKTREE_PATH"
 
 FMT_AUTOFIXED="no"
 FINAL_STATUS="READY_FOR_REVIEW"
+FINAL_REASON=""
 FMT1_STATUS=0
 FMT2_STATUS=0
 BUILD_STATUS="not-run"
@@ -25,13 +26,41 @@ WORKSPACE_TEST_STATUS="not-run"
 OPTIONAL_STATUS="not-run"
 POLICY_STATUS="pass"
 
-# Formatter check with recorded fmt rescue only.
-set +e
-policy_run_shell_cmd "fmt check before rescue" "$RUN_DIR/06-fmt-check-1.txt" hard "${VERIFY_FMT_CMD:-cargo fmt --check}"
-FMT1_STATUS=$?
-set -e
+# Capture the editor diff before running expensive gates. A deliberate STOP_REASON
+# with no diff is a blocked prompt/editor outcome, not a reviewable empty patch.
+git diff --stat > "$RUN_DIR/06-diff-stat.txt"
+git diff > "$RUN_DIR/06-diff.patch"
+CHANGED_FILES="$(git diff --name-only | tr '\n' ' ')"
 
-if [ "$FMT1_STATUS" -ne 0 ]; then
+EDITOR_STOP_REASON=""
+if [ -s "$RUN_DIR/05-agent-output.txt" ]; then
+  EDITOR_STOP_REASON="$(grep -m1 -E 'STOP_REASON:' "$RUN_DIR/05-agent-output.txt" 2>/dev/null | sed -E 's/^[[:space:]]*//')"
+fi
+
+if [ -n "$EDITOR_STOP_REASON" ] && [ ! -s "$RUN_DIR/06-diff.patch" ]; then
+  FINAL_STATUS="BLOCKED"
+  FINAL_REASON="editor reached stop condition"
+  {
+    echo "# Editor stop condition"
+    echo
+    echo "BLOCKED: editor reached stop condition"
+    echo "$EDITOR_STOP_REASON"
+    echo
+    echo "No source diff was produced. Treat this as a blocked patch prompt or contradicted accepted item, not as a patch ready for review."
+  } > "$RUN_DIR/06-editor-stop.txt"
+fi
+
+# Formatter check with recorded fmt rescue only.
+if [ "$FINAL_STATUS" != "BLOCKED" ]; then
+  set +e
+  policy_run_shell_cmd "fmt check before rescue" "$RUN_DIR/06-fmt-check-1.txt" hard "${VERIFY_FMT_CMD:-cargo fmt --check}"
+  FMT1_STATUS=$?
+  set -e
+else
+  echo "SKIP: $FINAL_STATUS ${FINAL_REASON:-}" > "$RUN_DIR/06-fmt-check-1.txt"
+fi
+
+if [ "$FINAL_STATUS" != "BLOCKED" ] && [ "$FMT1_STATUS" -ne 0 ]; then
   FMT_AUTOFIXED="yes"
   set +e
   policy_run_shell_cmd "fmt rescue" "$RUN_DIR/06-fmt-autofix.txt" hard "${VERIFY_FMT_RESCUE_CMD:-cargo fmt}"
@@ -39,6 +68,7 @@ if [ "$FMT1_STATUS" -ne 0 ]; then
   set -e
   if [ "$FMT_AUTOFIX_STATUS" -ne 0 ]; then
     FINAL_STATUS="BLOCKED"
+    FINAL_REASON="cargo fmt failed during harness rescue"
     FMT2_STATUS=1
     echo "BLOCKED: cargo fmt failed during harness rescue" > "$RUN_DIR/06-fmt-check-2.txt"
   else
@@ -46,11 +76,14 @@ if [ "$FMT1_STATUS" -ne 0 ]; then
     policy_run_shell_cmd "fmt check after rescue" "$RUN_DIR/06-fmt-check-2.txt" hard "${VERIFY_FMT_CMD:-cargo fmt --check}"
     FMT2_STATUS=$?
     set -e
-    [ "$FMT2_STATUS" -ne 0 ] && FINAL_STATUS="BLOCKED"
+    if [ "$FMT2_STATUS" -ne 0 ]; then
+      FINAL_STATUS="BLOCKED"
+      FINAL_REASON="cargo fmt failed after harness rescue"
+    fi
   fi
 else
   cp "$RUN_DIR/06-fmt-check-1.txt" "$RUN_DIR/06-fmt-check-2.txt"
-  FMT2_STATUS=0
+  [ "$FINAL_STATUS" = "BLOCKED" ] && FMT2_STATUS=1 || FMT2_STATUS=0
 fi
 
 if [ "$FINAL_STATUS" != "BLOCKED" ]; then
@@ -58,7 +91,10 @@ if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   policy_run_shell_cmd "build" "$RUN_DIR/06-build.txt" hard "${VERIFY_BUILD_CMD:-cargo build}"
   BUILD_STATUS=$?
   set -e
-  [ "$BUILD_STATUS" -ne 0 ] && FINAL_STATUS="BLOCKED"
+  if [ "$BUILD_STATUS" -ne 0 ]; then
+    FINAL_STATUS="BLOCKED"
+    FINAL_REASON="build failed"
+  fi
 fi
 
 if [ "$FINAL_STATUS" != "BLOCKED" ]; then
@@ -66,7 +102,10 @@ if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   policy_run_shell_cmd "clippy" "$RUN_DIR/06-clippy.txt" hard "${VERIFY_CLIPPY_CMD:-cargo clippy --all-targets -- -D warnings}"
   CLIPPY_STATUS=$?
   set -e
-  [ "$CLIPPY_STATUS" -ne 0 ] && FINAL_STATUS="BLOCKED"
+  if [ "$CLIPPY_STATUS" -ne 0 ]; then
+    FINAL_STATUS="BLOCKED"
+    FINAL_REASON="clippy failed"
+  fi
 fi
 
 if [ "$FINAL_STATUS" != "BLOCKED" ]; then
@@ -74,7 +113,10 @@ if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   policy_run_shell_cmd "test" "$RUN_DIR/06-test.txt" hard "${VERIFY_TEST_CMD:-cargo test}"
   TEST_STATUS=$?
   set -e
-  [ "$TEST_STATUS" -ne 0 ] && FINAL_STATUS="BLOCKED"
+  if [ "$TEST_STATUS" -ne 0 ]; then
+    FINAL_STATUS="BLOCKED"
+    FINAL_REASON="test failed"
+  fi
 fi
 
 if [ "$FINAL_STATUS" != "BLOCKED" ]; then
@@ -82,7 +124,10 @@ if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   policy_run_shell_cmd "workspace test" "$RUN_DIR/06-workspace-test.txt" hard "${VERIFY_WORKSPACE_TEST_CMD:-cargo test --workspace}"
   WORKSPACE_TEST_STATUS=$?
   set -e
-  [ "$WORKSPACE_TEST_STATUS" -ne 0 ] && FINAL_STATUS="BLOCKED"
+  if [ "$WORKSPACE_TEST_STATUS" -ne 0 ]; then
+    FINAL_STATUS="BLOCKED"
+    FINAL_REASON="workspace test failed"
+  fi
 fi
 
 # Ensure output files exist even when skipped.
@@ -91,6 +136,7 @@ fi
 [ -f "$RUN_DIR/06-test.txt" ] || echo "NOT RUN" > "$RUN_DIR/06-test.txt"
 [ -f "$RUN_DIR/06-workspace-test.txt" ] || echo "NOT RUN" > "$RUN_DIR/06-workspace-test.txt"
 
+# Refresh the final diff after formatter rescue or any generated changes.
 git diff --stat > "$RUN_DIR/06-diff-stat.txt"
 git diff > "$RUN_DIR/06-diff.patch"
 CHANGED_FILES="$(git diff --name-only | tr '\n' ' ')"
@@ -99,24 +145,28 @@ CHANGED_FILES="$(git diff --name-only | tr '\n' ' ')"
 if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   if ! policy_check_no_agent_commits "$RUN_DIR"; then
     FINAL_STATUS="BLOCKED"
+    FINAL_REASON="no-agent-commits policy failed"
     POLICY_STATUS="fail"
   fi
 fi
 if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   if ! policy_check_allowed_files "$RUN_DIR" "$PROMPT_FILE"; then
     FINAL_STATUS="BLOCKED"
+    FINAL_REASON="allowed-files policy failed"
     POLICY_STATUS="fail"
   fi
 fi
 if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   if ! policy_check_patch_size "$RUN_DIR"; then
     FINAL_STATUS="BLOCKED"
+    FINAL_REASON="patch-size policy failed"
     POLICY_STATUS="fail"
   fi
 fi
 if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   if ! policy_check_feature_tests "$RUN_DIR"; then
     FINAL_STATUS="BLOCKED"
+    FINAL_REASON="feature-test policy failed"
     POLICY_STATUS="fail"
   fi
 fi
@@ -154,6 +204,7 @@ if [ "$FINAL_STATUS" != "BLOCKED" ]; then
     elif [ "$mode" = "hard" ]; then
       echo "- $tool_name: FAIL (hard, status=$status)" >> "$OPTIONAL_OUT"
       FINAL_STATUS="BLOCKED"
+      FINAL_REASON="optional hard tool failed: $tool_name"
       OPTIONAL_STATUS="fail"
     else
       echo "- $tool_name: WARN (status=$status)" >> "$OPTIONAL_OUT"
@@ -168,6 +219,8 @@ if [ "$FINAL_STATUS" != "BLOCKED" ]; then
   run_optional_tool "machete" "${CARGO_MACHETE_MODE:-warn}" "cargo machete"
   run_optional_tool "llvm-cov" "${CARGO_LLVM_COV_MODE:-off}" "cargo llvm-cov --workspace --all-features --summary-only"
   run_optional_tool "mutants" "${CARGO_MUTANTS_MODE:-off}" "cargo mutants --no-shuffle --timeout 60"
+else
+  echo "- optional tools: SKIP ($FINAL_STATUS ${FINAL_REASON:-})" >> "$OPTIONAL_OUT"
 fi
 
 policy_quality_scorecard "$RUN_DIR" "$FINAL_STATUS"
@@ -197,6 +250,7 @@ cat > "$RUN_DIR/05-agent-result.md" << EOF_RESULT
 - Run: $RUN_ID
 - Iteration: $ITERATION
 - Final status: $FINAL_STATUS
+- Final reason: ${FINAL_REASON:-none}
 - Editor model: $ACTIVE_EDITOR_MODEL
 - Files changed: ${CHANGED_FILES:-"(none)"}
 - Project profile: ${PROJECT_PROFILE_NAME:-generic}
@@ -224,6 +278,7 @@ cat > "$RUN_DIR/05-agent-result.md" << EOF_RESULT
 - Harness clippy/test/build rescue: not allowed
 - Editor commits allowed: no
 - Human merge required: yes
+- Editor stop condition treated as blocked: $([ -n "$EDITOR_STOP_REASON" ] && [ ! -s "$RUN_DIR/06-diff.patch" ] && echo yes || echo no)
 
 ## Diff summary
 
@@ -231,4 +286,7 @@ $(cat "$RUN_DIR/06-diff-stat.txt" || true)
 EOF_RESULT
 
 echo "$FINAL_STATUS" > "$RUN_DIR/06-status.txt"
+if [ -n "${FINAL_REASON:-}" ]; then
+  echo "$FINAL_REASON" > "$RUN_DIR/06-status-reason.txt"
+fi
 echo "INFO: verification status: $FINAL_STATUS"
