@@ -15,7 +15,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 bash "$SCRIPT_DIR/start.sh" "$ROLE"
-bash "$SCRIPT_DIR/ask.sh" "$PORT" "$SYSTEM_FILE" "$USER_FILE" "$OUTPUT_FILE"
+bash "$SCRIPT_DIR/ask.sh" "$ROLE" "$PORT" "$SYSTEM_FILE" "$USER_FILE" "$OUTPUT_FILE"
 
 trap - EXIT INT TERM
 cleanup
