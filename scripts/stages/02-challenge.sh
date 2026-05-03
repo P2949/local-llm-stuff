@@ -46,7 +46,10 @@ fi
   printf '%s\n' "$SHADOW_SECTION"
   echo
   echo "# Repository map"
-  cat "$RUN_DIR/00-repo-map.md"
+  truncate_file "$RUN_DIR/00-repo-map.md" "${CONTEXT_MAX_REPO_MAP_BYTES:-8000}"
+  echo
+  echo "# Exact required source snippets"
+  pack_required_source_context "$TARGET_REPO" "$RUN_DIR/00-task.md" "${CONTEXT_REQUIRED_SOURCE_CONTEXT_LINES:-8}"
   echo
   echo "# Project-prioritized source context"
   pack_project_context_packs "$TARGET_REPO" "$RUN_DIR/00-task.md" "$CONTEXT_MAX_SOURCE_BYTES"
