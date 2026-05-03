@@ -20,11 +20,28 @@ if [ ! -s "$GEMMA_CHALLENGE" ]; then
   exit 1
 fi
 
-extract_accepted_ids() {
+normalize_id() {
+  local raw="$1"
+  local prefix number
+  raw="$(printf '%s' "$raw" | sed -E 's/^[[:space:]]+//; s/[[:space:]:.,;]+$//')"
+  prefix="$(printf '%s' "$raw" | sed -nE 's/^([FPI])-?[0-9]+$/\1/p')"
+  number="$(printf '%s' "$raw" | sed -nE 's/^[FPI]-?0*([0-9]+)$/\1/p')"
+  if [ -n "$prefix" ] && [ -n "$number" ]; then
+    printf '%s-%03d\n' "$prefix" "$number"
+  fi
+}
+
+normalize_ids() {
+  while IFS= read -r id; do
+    normalize_id "$id"
+  done | sort -u
+}
+
+extract_accepted_ids_raw() {
   awk '
     function accepted(b) { return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/ }
     function emit() { if (id != "" && accepted(block)) print id }
-    /^## [FPI]-[0-9]+:/ {
+    /^## [FPI]-?[0-9]+[[:space:]:]/ {
       emit()
       id=$2
       sub(/:$/, "", id)
@@ -39,7 +56,7 @@ extract_accepted_ids() {
     }
     id != "" { block=block $0 "\n" }
     END { emit() }
-  ' "$1" | sort -u
+  ' "$1"
 }
 
 QWEN_IDS="$(mktemp)"
@@ -48,8 +65,8 @@ CONSENSUS_IDS="$(mktemp)"
 cleanup() { rm -f "$QWEN_IDS" "$GEMMA_IDS" "$CONSENSUS_IDS"; }
 trap cleanup EXIT INT TERM
 
-extract_accepted_ids "$QWEN_CHALLENGE" > "$QWEN_IDS"
-extract_accepted_ids "$GEMMA_CHALLENGE" > "$GEMMA_IDS"
+extract_accepted_ids_raw "$QWEN_CHALLENGE" | normalize_ids > "$QWEN_IDS"
+extract_accepted_ids_raw "$GEMMA_CHALLENGE" | normalize_ids > "$GEMMA_IDS"
 comm -12 "$QWEN_IDS" "$GEMMA_IDS" > "$CONSENSUS_IDS"
 
 QWEN_COUNT="$(wc -l < "$QWEN_IDS" | tr -d ' ')"
@@ -71,18 +88,30 @@ CONSENSUS_COUNT="$(wc -l < "$CONSENSUS_IDS" | tr -d ' ')"
   echo
 
   awk -v ids_file="$CONSENSUS_IDS" '
+    function norm(raw, cleaned, prefix, number) {
+      cleaned = raw
+      gsub(/^[[:space:]]+/, "", cleaned)
+      gsub(/[[:space:]:.,;]+$/, "", cleaned)
+      if (match(cleaned, /^([FPI])-?0*([0-9]+)$/, m)) {
+        prefix = m[1]
+        number = m[2] + 0
+        return sprintf("%s-%03d", prefix, number)
+      }
+      return ""
+    }
     BEGIN {
       while ((getline id < ids_file) > 0) consensus[id]=1
       close(ids_file)
     }
     function accepted(b) { return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/ }
     function emit() {
-      if (id != "" && (id in consensus) && accepted(block)) {
-        print "<!-- consensus: qwen=ACCEPT gemma=ACCEPT -->"
+      normalized_id = norm(id)
+      if (normalized_id != "" && (normalized_id in consensus) && accepted(block)) {
+        print "<!-- consensus: qwen=ACCEPT gemma=ACCEPT id=" normalized_id " -->"
         print block "\n"
       }
     }
-    /^## [FPI]-[0-9]+:/ {
+    /^## [FPI]-?[0-9]+[[:space:]:]/ {
       emit()
       id=$2
       sub(/:$/, "", id)
