@@ -157,6 +157,9 @@ if [ "$FINAL_STATUS" != "BLOCKED" ]; then
       OPTIONAL_STATUS="fail"
     else
       echo "- $tool_name: WARN (status=$status)" >> "$OPTIONAL_OUT"
+      if [ "$OPTIONAL_STATUS" = "pass" ]; then
+        OPTIONAL_STATUS="warn"
+      fi
     fi
   }
 
