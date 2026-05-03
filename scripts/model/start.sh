@@ -7,12 +7,12 @@ source "$SCRIPT_DIR/../../config/models.env"
 ROLE="${1:?Usage: start.sh <qwen27b|qwen35b|qwen35b_fallback|qwen_coder|gemma|devstral>}"
 
 case "$ROLE" in
-  qwen27b)           MODEL="$QWEN27B_MODEL";           PORT="$QWEN27B_PORT" ;;
-  qwen35b)           MODEL="$QWEN35B_MODEL";           PORT="$QWEN35B_PORT" ;;
-  qwen35b_fallback)  MODEL="$QWEN35B_FALLBACK_MODEL";  PORT="$QWEN35B_PORT" ;;
-  qwen_coder)        MODEL="$QWEN_CODER_MODEL";        PORT="$QWEN_CODER_PORT" ;;
-  gemma)             MODEL="$GEMMA_MODEL";             PORT="$GEMMA_PORT" ;;
-  devstral)          MODEL="$DEVSTRAL_MODEL";          PORT="$DEVSTRAL_PORT" ;;
+  qwen27b)           MODEL="$QWEN27B_MODEL";           PORT="$QWEN27B_PORT";     CTX="$QWEN27B_CTX" ;;
+  qwen35b)           MODEL="$QWEN35B_MODEL";           PORT="$QWEN35B_PORT";     CTX="$QWEN35B_CTX" ;;
+  qwen35b_fallback)  MODEL="$QWEN35B_FALLBACK_MODEL";  PORT="$QWEN35B_PORT";     CTX="$QWEN35B_CTX" ;;
+  qwen_coder)        MODEL="$QWEN_CODER_MODEL";        PORT="$QWEN_CODER_PORT"; CTX="$QWEN_CODER_CTX" ;;
+  gemma)             MODEL="$GEMMA_MODEL";             PORT="$GEMMA_PORT";      CTX="$GEMMA_CTX" ;;
+  devstral)          MODEL="$DEVSTRAL_MODEL";          PORT="$DEVSTRAL_PORT";   CTX="$DEVSTRAL_CTX" ;;
   *) echo "ERROR: unknown model role: $ROLE" >&2; exit 1 ;;
 esac
 
@@ -31,6 +31,7 @@ rm -f "$PIDFILE"
 echo "INFO: starting $ROLE on port $PORT"
 echo "INFO: model: $MODEL"
 echo "INFO: log: $LOGFILE"
+echo "INFO: context: $CTX"
 echo "INFO: startup timeout: ${MODEL_START_TIMEOUT_SECONDS}s"
 [ -n "${MODEL_ENV_PREFIX:-}" ] && echo "INFO: env prefix: $MODEL_ENV_PREFIX"
 [ -n "${LLAMA_EXTRA_ARGS:-}" ] && echo "INFO: extra args: $LLAMA_EXTRA_ARGS"
@@ -39,7 +40,7 @@ echo "INFO: startup timeout: ${MODEL_START_TIMEOUT_SECONDS}s"
 if [ -n "${MODEL_ENV_PREFIX:-}" ]; then
   env $MODEL_ENV_PREFIX "$LLAMA_SERVER" \
     -m "$MODEL" \
-    -c "$DEFAULT_CTX" \
+    -c "$CTX" \
     $LLAMA_FLAGS \
     $LLAMA_EXTRA_ARGS \
     --host 127.0.0.1 \
@@ -49,7 +50,7 @@ else
   # shellcheck disable=SC2086
   "$LLAMA_SERVER" \
     -m "$MODEL" \
-    -c "$DEFAULT_CTX" \
+    -c "$CTX" \
     $LLAMA_FLAGS \
     $LLAMA_EXTRA_ARGS \
     --host 127.0.0.1 \
