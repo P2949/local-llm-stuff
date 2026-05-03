@@ -120,17 +120,18 @@ else
 fi
 
 run_stage 02-challenge.sh
+run_stage 02b-gemma-challenge.sh
 run_stage 03-accepted-issues.sh
 
 ACCEPTED_COUNT="$(grep -c 'Decision: ACCEPT' "$RUN_DIR/03-accepted-issues.md" 2>/dev/null || true)"
 ACCEPTED_COUNT="${ACCEPTED_COUNT:-0}"
 if [ "$ACCEPTED_COUNT" -eq 0 ]; then
-  write_decision "NO_ITEMS_ACCEPTED" "all finder/plan items rejected or unsupported"
+  write_decision "NO_CONSENSUS_ITEMS_ACCEPTED" "Qwen and Gemma did not both accept any finder/plan item"
   exit 0
 fi
 
 if [ "${TASK_MODE:-fix}" = "review" ]; then
-  write_decision "REVIEW_READY" "review-only mode stopped after accepted issue extraction; no editor stage was run"
+  write_decision "REVIEW_READY" "review-only mode stopped after Qwen/Gemma consensus extraction; no editor stage was run"
   exit 0
 fi
 
