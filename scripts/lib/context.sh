@@ -62,6 +62,121 @@ context_pack_files_for_task() {
   fi
 }
 
+extract_task_line_refs() {
+  local task_file="${1:?task file required}"
+  # Matches bullets like:
+  # - stutter/src/main.rs:825: fn cleanup_stale_tune_run_dirs(...)
+  # Emits: path<TAB>line
+  grep -Eo '[[:alnum:]_./-]+\.(rs|toml|md|sh):[0-9]+' "$task_file" 2>/dev/null \
+    | awk -F: '!seen[$1":"$2]++ { print $1 "\t" $2 }'
+}
+
+extract_required_source_locations() {
+  local task_file="${1:?task file required}"
+  # Matches bullets like:
+  # - cleanup_stale_tune_run_dirs: stutter/src/main.rs
+  # - stutter/src/main.rs
+  # Emits: path<TAB>symbol-or-empty
+  awk '
+    BEGIN { in_section=0 }
+    /^Required source locations:/ { in_section=1; next }
+    /^Allowed files:/ { in_section=0 }
+    in_section && /^-/ { print }
+  ' "$task_file" 2>/dev/null \
+    | sed -E 's/^-[[:space:]]*//' \
+    | awk '
+        /^[^:]+:[[:space:]]*[[:alnum:]_./-]+\.(rs|toml|md|sh)$/ {
+          symbol=$0; sub(/:.*/, "", symbol);
+          path=$0; sub(/^[^:]+:[[:space:]]*/, "", path);
+          print path "\t" symbol;
+          next;
+        }
+        /^[[:alnum:]_./-]+\.(rs|toml|md|sh)$/ {
+          print $0 "\t";
+        }
+      ' \
+    | awk '!seen[$1":"$2]++'
+}
+
+print_line_window() {
+  local file="${1:?file required}"
+  local line="${2:?line required}"
+  local context="${3:-8}"
+  local start=$((line - context))
+  local end=$((line + context))
+  [ "$start" -lt 1 ] && start=1
+  sed -n "${start},${end}p" "$file" | nl -ba -v "$start"
+}
+
+print_symbol_context() {
+  local file="${1:?file required}"
+  local symbol="${2:?symbol required}"
+  local context="${3:-8}"
+  local first_line
+  first_line="$(grep -n -E "(^|[^[:alnum:]_])${symbol}([^[:alnum:]_]|$)" "$file" 2>/dev/null | head -1 | cut -d: -f1 || true)"
+  if [ -n "$first_line" ]; then
+    print_line_window "$file" "$first_line" "$context"
+  else
+    echo "<!-- symbol not found in $file: $symbol -->"
+  fi
+}
+
+pack_required_source_context() {
+  local repo="$1"
+  local task_file="${2:-}"
+  local context="${3:-8}"
+  local emitted=0
+  local seen=" "
+
+  [ -n "$task_file" ] || return 0
+  [ -f "$task_file" ] || return 0
+  cd "$repo"
+
+  while IFS=$'\t' read -r path line; do
+    [ -n "$path" ] || continue
+    [ -f "$path" ] || continue
+    local key="line:$path:$line"
+    [[ "$seen" == *" $key "* ]] && continue
+    seen="$seen$key "
+    emitted=1
+    echo
+    echo "## REQUIRED SOURCE LINE: $path:$line"
+    echo '```'
+    print_line_window "$path" "$line" "$context"
+    echo '```'
+  done < <(extract_task_line_refs "$task_file")
+
+  while IFS=$'\t' read -r path symbol; do
+    [ -n "$path" ] || continue
+    [ -f "$path" ] || continue
+    if [ -n "$symbol" ]; then
+      local key="symbol:$path:$symbol"
+      [[ "$seen" == *" $key "* ]] && continue
+      seen="$seen$key "
+      emitted=1
+      echo
+      echo "## REQUIRED SOURCE SYMBOL: $symbol in $path"
+      echo '```'
+      print_symbol_context "$path" "$symbol" "$context"
+      echo '```'
+    else
+      local key="file:$path"
+      [[ "$seen" == *" $key "* ]] && continue
+      seen="$seen$key "
+      emitted=1
+      echo
+      echo "## REQUIRED SOURCE FILE HEAD: $path"
+      echo '```'
+      head -n $((context * 4)) "$path" | nl -ba
+      echo '```'
+    fi
+  done < <(extract_required_source_locations "$task_file")
+
+  if [ "$emitted" -eq 0 ]; then
+    echo "(no exact required source snippets found in task prompt)"
+  fi
+}
+
 pack_project_context_packs() {
   local repo="$1"
   local task_file="${2:-}"
