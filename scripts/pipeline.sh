@@ -190,15 +190,66 @@ archive_candidate_artifacts() {
 EOF_SUMMARY
 }
 
+write_blocked_candidate_verification() {
+  local candidate="$1"
+  local reason="$2"
+  echo "BLOCKED" > "$RUN_DIR/06-status.txt"
+  echo "$reason" > "$RUN_DIR/06-status-reason.txt"
+  : > "$RUN_DIR/06-diff.patch"
+  : > "$RUN_DIR/06-diff-stat.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-build.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-clippy.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-test.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-workspace-test.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-fmt-check-1.txt"
+  echo "NOT RUN: $reason" > "$RUN_DIR/06-fmt-check-2.txt"
+  cat > "$RUN_DIR/05-agent-result.md" << EOF_RESULT
+# Agent Result
+
+- Run: $RUN_ID
+- Iteration: $ITERATION
+- Final status: BLOCKED
+- Final reason: $reason
+- Editor candidate: $candidate
+- Files changed: (none)
+- Project profile: ${PROJECT_PROFILE_NAME:-generic}
+
+## Verification result
+
+The editor candidate did not reach external verification. See 05-agent-output.txt and 05-source-location-check.txt.
+EOF_RESULT
+}
+
 run_editor_candidate() {
   local candidate="$1"
   local prompt_file="$2"
+  local editor_status=0
+  local verify_status=0
   echo
   echo "── Candidate editor: $candidate ──"
   reset_worktree_for_editor
   rm -f "$RUN_DIR"/05-* "$RUN_DIR"/06-*
+
+  set +e
   run_stage 05-editor.sh "$prompt_file" "$candidate"
+  editor_status=$?
+  set -e
+
+  if [ "$editor_status" -ne 0 ]; then
+    write_blocked_candidate_verification "$candidate" "editor stage failed before verification with exit code $editor_status"
+    archive_candidate_artifacts "$candidate"
+    return 0
+  fi
+
+  set +e
   run_stage 06-verify.sh "$prompt_file"
+  verify_status=$?
+  set -e
+
+  if [ "$verify_status" -ne 0 ]; then
+    write_blocked_candidate_verification "$candidate" "verification stage failed with exit code $verify_status"
+  fi
+
   archive_candidate_artifacts "$candidate"
 }
 
