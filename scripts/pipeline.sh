@@ -106,6 +106,20 @@ check_revision_for_escalation() {
   fi
 }
 
+reset_worktree_for_editor() {
+  if [ -z "${WORKTREE_PATH:-}" ] || [ ! -d "$WORKTREE_PATH" ]; then
+    echo "ERROR: worktree missing: ${WORKTREE_PATH:-}" >&2
+    exit 1
+  fi
+
+  if [ -n "${AGENT_BASE_COMMIT:-}" ]; then
+    git -C "$WORKTREE_PATH" reset --hard "$AGENT_BASE_COMMIT" >/dev/null
+  else
+    git -C "$WORKTREE_PATH" checkout -- .
+  fi
+  git -C "$WORKTREE_PATH" clean -fd >/dev/null
+}
+
 policy_write_manifest "$RUN_DIR"
 policy_assert_local_editor_model
 
@@ -146,6 +160,7 @@ while [ "$ITERATION" -lt "$MAX_PATCH_ITERATIONS" ]; do
   sed -i "s/^ITERATION=.*/ITERATION=$ITERATION/" "$RUN_DIR/00-meta.env"
   source "$RUN_DIR/00-meta.env"
 
+  reset_worktree_for_editor
   run_stage 05-editor.sh "$CURRENT_PROMPT"
   run_stage 06-verify.sh "$CURRENT_PROMPT"
 
