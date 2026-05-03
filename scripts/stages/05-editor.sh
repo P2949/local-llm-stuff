@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUN_DIR="${1:?Usage: 05-editor.sh <run-dir> [prompt-file]}"
+RUN_DIR="${1:?Usage: 05-editor.sh <run-dir> [prompt-file] [qwen|devstral]}"
 PROMPT_FILE="${2:-$RUN_DIR/04-patch-prompt.md}"
+EDITOR_CANDIDATE="${3:-qwen}"
 source "$RUN_DIR/00-meta.env"
 source "$PIPELINE_DIR/config/models.env"
 source "$PIPELINE_DIR/config/pipeline.env"
@@ -12,9 +13,28 @@ if [ -n "${PROJECT_PROFILE_FILE:-}" ] && [ -f "$PROJECT_PROFILE_FILE" ]; then
   source "$PROJECT_PROFILE_FILE"
 fi
 
-echo "=== Stage 5: Editor ==="
+case "$EDITOR_CANDIDATE" in
+  qwen)
+    EDITOR_MODEL_ROLE="qwen_coder"
+    ACTIVE_EDITOR_MODEL="$EDITOR_MODEL"
+    EDITOR_API_PORT="$QWEN_CODER_PORT"
+    ;;
+  devstral)
+    EDITOR_MODEL_ROLE="devstral"
+    ACTIVE_EDITOR_MODEL="$EDITOR_CHALLENGER_MODEL"
+    EDITOR_API_PORT="$DEVSTRAL_PORT"
+    ;;
+  *)
+    echo "ERROR: unknown editor candidate: $EDITOR_CANDIDATE" >&2
+    exit 1
+    ;;
+esac
+
+echo "=== Stage 5: Editor ($EDITOR_CANDIDATE) ==="
 echo "INFO: prompt: $PROMPT_FILE"
 echo "INFO: worktree: $WORKTREE_PATH"
+echo "INFO: editor role: $EDITOR_MODEL_ROLE"
+echo "INFO: editor model: $ACTIVE_EDITOR_MODEL"
 
 [ -f "$PROMPT_FILE" ] || { echo "ERROR: prompt file missing: $PROMPT_FILE" >&2; exit 1; }
 [ -d "$WORKTREE_PATH/.git" ] || [ -f "$WORKTREE_PATH/.git" ] || { echo "ERROR: worktree missing: $WORKTREE_PATH" >&2; exit 1; }
@@ -104,12 +124,12 @@ fi
 MODEL_STARTED=0
 cleanup() {
   if [ "$MODEL_STARTED" -eq 1 ]; then
-    "$PIPELINE_DIR/scripts/model/stop.sh" qwen_coder || true
+    "$PIPELINE_DIR/scripts/model/stop.sh" "$EDITOR_MODEL_ROLE" || true
   fi
 }
 trap cleanup EXIT
 
-"$PIPELINE_DIR/scripts/model/start.sh" qwen_coder
+"$PIPELINE_DIR/scripts/model/start.sh" "$EDITOR_MODEL_ROLE"
 MODEL_STARTED=1
 
 AIDER_EXTRA_ARGV=()
@@ -143,6 +163,7 @@ SOURCE_LOCATION_COUNT=0
 {
   echo "# Source-location check"
   echo "Prompt: $PROMPT_FILE"
+  echo "Editor candidate: $EDITOR_CANDIDATE"
   echo
 } > "$SOURCE_CHECK_OUT"
 
@@ -191,7 +212,7 @@ else
   echo "WARN: no exact existing allowed files found to pass to Aider" | tee "$RUN_DIR/05-aider-files.txt"
 fi
 
-EDITOR_API_BASE="http://127.0.0.1:${QWEN_CODER_PORT}/v1"
+EDITOR_API_BASE="http://127.0.0.1:${EDITOR_API_PORT}/v1"
 policy_assert_local_api_base "$EDITOR_API_BASE"
 
 set +e
@@ -221,6 +242,8 @@ cleanup
 BASE_AFTER="$(git rev-parse HEAD)"
 {
   echo "# Editor policy result"
+  echo "candidate=$EDITOR_CANDIDATE"
+  echo "editor_role=$EDITOR_MODEL_ROLE"
   echo "editor_model=$ACTIVE_EDITOR_MODEL"
   echo "api_base=$EDITOR_API_BASE"
   echo "base_before=$BASE_BEFORE"
