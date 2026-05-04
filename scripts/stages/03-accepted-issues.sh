@@ -52,7 +52,7 @@ extract_accepted_ids_raw() {
       return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/
     }
     function has_source_evidence(b) {
-      return b ~ /(^|\n)[[:space:]]*-[[:space:]]*[^[:space:]]+:[0-9]+(-[0-9]+)?:[[:space:]]*[^[:space:]]+/
+      return b ~ /(^|\n)[[:space:]]*-[[:space:]]*`?[^`[:space:]]+:[0-9]+(-[0-9]+)?`?:[[:space:]]*[^[:space:]]+/
     }
     function has_banned_evidence_language(b, lower) {
       lower = tolower(b)
@@ -137,7 +137,7 @@ CONSENSUS_COUNT="$(wc -l < "$CONSENSUS_IDS" | tr -d ' ')"
       return ""
     }
     function accepted(b) { return b ~ /(^|\n)Decision:[[:space:]]*ACCEPT([[:space:]]|\n|$)/ }
-    function has_source_evidence(b) { return b ~ /(^|\n)[[:space:]]*-[[:space:]]*[^[:space:]]+:[0-9]+(-[0-9]+)?:[[:space:]]*[^[:space:]]+/ }
+    function has_source_evidence(b) { return b ~ /(^|\n)[[:space:]]*-[[:space:]]*`?[^`[:space:]]+:[0-9]+(-[0-9]+)?`?:[[:space:]]*[^[:space:]]+/ }
     function has_banned_evidence_language(b, lower) {
       lower = tolower(b)
       return lower ~ /(implied logic|likely|probably|without seeing the implementation|contextual analysis|standard behavior)/
