@@ -56,20 +56,31 @@ extract_required_source_locations() {
       line=$0
       sub(/^- /, "", line)
       gsub(/`/, "", line)
+      is_new=0
+
+      # Accept both:
+      # - helper (new): path/to/file.rs
+      # - helper: path/to/file.rs (new helper)
+      if (line ~ /[[:space:]]*\((new|new helper)\)[[:space:]]*:/) {
+        sub(/[[:space:]]*\((new|new helper)\)[[:space:]]*:/, ":", line)
+        is_new=1
+      }
+      if (line ~ /[[:space:]]*\((new|new helper)\)[[:space:]]*$/) {
+        sub(/[[:space:]]*\((new|new helper)\)[[:space:]]*$/, "", line)
+        is_new=1
+      }
+
       split(line, parts, ":")
       symbol=parts[1]
       sub(/^[[:space:]]+/, "", symbol)
       sub(/[[:space:]]+$/, "", symbol)
+
       path=line
       sub(/^[^:]+:/, "", path)
       sub(/:[0-9]+(:.*)?$/, "", path)
       sub(/^[[:space:]]+/, "", path)
       sub(/[[:space:]]+$/, "", path)
-      is_new=0
-      if (symbol ~ /[[:space:]]*\((new|new helper)\)[[:space:]]*$/) {
-        sub(/[[:space:]]*\((new|new helper)\)[[:space:]]*$/, "", symbol)
-        is_new=1
-      }
+
       if (symbol != "" && path != "") print symbol "\t" path "\t" is_new
     }
   ' "$prompt_file"
