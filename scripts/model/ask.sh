@@ -73,9 +73,14 @@ fi
 # Fail if any object in the response contains reasoning_content. The old jq
 # expression could miss this because jq -e uses the last produced boolean.
 if jq -e 'any(.. | objects; has("reasoning_content"))' "$TMP_RESPONSE" >/dev/null 2>&1; then
-  echo "ERROR: response contains reasoning_content; reasoning/thinking is not disabled" >&2
-  echo "ERROR: raw response kept at $TMP_RESPONSE" >&2
-  exit 1
+  if [ "${ALLOW_REASONING_CONTENT:-0}" != "1" ]; then
+    echo "ERROR: response contains reasoning_content; reasoning/thinking is not disabled" >&2
+    echo "ERROR: raw response kept at $TMP_RESPONSE" >&2
+    exit 1
+  fi
+
+  jq -r '.choices[0].message.reasoning_content // empty' "$TMP_RESPONSE" > "${OUTPUT_FILE}.reasoning.md"
+  echo "WARN: reasoning_content allowed for experimental run; saved to ${OUTPUT_FILE}.reasoning.md" >&2
 fi
 
 jq -r '.choices[0].message.content // empty' "$TMP_RESPONSE" > "$OUTPUT_FILE"
