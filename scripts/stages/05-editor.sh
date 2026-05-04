@@ -65,7 +65,12 @@ extract_required_source_locations() {
       sub(/:[0-9]+(:.*)?$/, "", path)
       sub(/^[[:space:]]+/, "", path)
       sub(/[[:space:]]+$/, "", path)
-      if (symbol != "" && path != "") print symbol "\t" path
+      is_new=0
+      if (symbol ~ /[[:space:]]*\((new|new helper)\)[[:space:]]*$/) {
+        sub(/[[:space:]]*\((new|new helper)\)[[:space:]]*$/, "", symbol)
+        is_new=1
+      }
+      if (symbol != "" && path != "") print symbol "\t" path "\t" is_new
     }
   ' "$prompt_file"
 }
@@ -167,7 +172,7 @@ SOURCE_LOCATION_COUNT=0
   echo
 } > "$SOURCE_CHECK_OUT"
 
-while IFS=$'\t' read -r symbol source_file; do
+while IFS=$'\t' read -r symbol source_file is_new_symbol; do
   [ -n "${symbol:-}" ] || continue
   SOURCE_LOCATION_COUNT=$((SOURCE_LOCATION_COUNT + 1))
   echo "- symbol=$symbol file=$source_file" >> "$SOURCE_CHECK_OUT"
@@ -183,7 +188,9 @@ while IFS=$'\t' read -r symbol source_file; do
     SOURCE_CHECK_FAILED=1
   fi
 
-  if grep -nF -- "$symbol" "$source_file" >> "$SOURCE_CHECK_OUT" 2>/dev/null; then
+  if [ "${is_new_symbol:-0}" = "1" ]; then
+    echo "  PASS: new symbol allowed; source file found" >> "$SOURCE_CHECK_OUT"
+  elif grep -nF -- "$symbol" "$source_file" >> "$SOURCE_CHECK_OUT" 2>/dev/null; then
     echo "  PASS: symbol found" >> "$SOURCE_CHECK_OUT"
   else
     echo "  FAIL: symbol not found in required source file" >> "$SOURCE_CHECK_OUT"
