@@ -13,9 +13,10 @@ Rules:
 - An ACCEPT decision must cite at least one exact source reference in the form `path/to/file.rs:123: concrete code snippet`.
 - Prefer single-line source evidence bullets. If the source context shows a line range, copy at least one concrete line from that range as `path/to/file.rs:123: snippet`.
 - Source evidence bullets must start with `- ` under `Evidence checked:`.
-- Do not wrap source references in backticks. Use exactly: `- path/to/file.rs:123: concrete code snippet`.
-- Bad: `- `path/to/file.rs:123`: code`
-- Good: `- path/to/file.rs:123: code`
+- Do not wrap source references in backticks.
+- Source evidence bullets must use this exact shape: `- path/to/file.rs:123: concrete code snippet`.
+- Bad source evidence example: source reference wrapped in backticks.
+- Good source evidence example: `- path/to/file.rs:123: code`
 - Do not ACCEPT based on vague source claims. Accepted items must not use phrases such as `implied logic`, `likely`, `probably`, `without seeing the implementation`, `contextual analysis`, or `standard behavior` as evidence.
 - If you cannot provide an exact file path, line number, and code snippet from the supplied context, use NEEDS_MORE_EVIDENCE or REJECT.
 
